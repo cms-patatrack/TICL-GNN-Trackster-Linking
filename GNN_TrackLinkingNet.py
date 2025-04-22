@@ -1,0 +1,117 @@
+import numpy as np
+import torch
+import torch.nn as nn
+from torch.utils.tensorboard import SummaryWriter
+
+from EdgeConvBlock import EdgeConvBlock
+
+def prepare_network_input_data(X, edge_index, edge_features, device=None):
+    X = torch.nan_to_num(X, nan=0.0)    
+    edge_features = torch.nan_to_num(edge_features, nan=0.0)
+    return torch.unsqueeze(X, dim=0), torch.unsqueeze(edge_index, dim=0).float(), torch.unsqueeze(edge_features, dim=0).float()
+
+    
+class GNN_TrackLinkingNet(nn.Module):
+    def __init__(self, input_dim=19, hidden_dim=16, output_dim=1, niters=2, dropout=0.2,
+                 edge_feature_dim=12, edge_hidden_dim=16, weighted_aggr=True):
+        super(GNN_TrackLinkingNet, self).__init__()
+        
+        self.writer = SummaryWriter(f"tensorboard_runs/gnn_model_no_geometric")
+        
+        self.niters = niters
+        self.input_dim = input_dim
+        self.edge_feature_dim = edge_feature_dim
+        self.weighted_aggr = weighted_aggr
+        
+        # Feature transformation to latent space
+        self.inputnetwork = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.LeakyReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.LeakyReLU()
+        )
+        
+        # Edge Feature transformation to latent space
+        self.edge_inputnetwork = nn.Sequential(
+            nn.Linear(edge_feature_dim, edge_hidden_dim),
+            nn.LeakyReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(edge_hidden_dim, edge_hidden_dim),
+            nn.LeakyReLU()
+        )
+        
+        self.attention_direct = nn.Sequential(
+            nn.Linear(edge_hidden_dim, edge_hidden_dim),
+            nn.LeakyReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(edge_hidden_dim, 1),
+            nn.Sigmoid()
+        )
+        
+        self.attention_reverse = nn.Sequential(
+            nn.Linear(edge_hidden_dim, edge_hidden_dim),
+            nn.LeakyReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(edge_hidden_dim, 1),
+            nn.Sigmoid()
+        )
+        
+        # EdgeConv
+        self.graphconvs = nn.ModuleList()
+        for i in range(niters):
+            self.graphconvs.append(EdgeConvBlock(in_feat=hidden_dim, 
+                                                 out_feats=[2*hidden_dim, hidden_dim], dropout=dropout,
+                                                 weighted_aggr=weighted_aggr))
+        
+        # Edge features from node embeddings for classification
+        self.edgenetwork = nn.Sequential(
+            nn.Linear(2 * hidden_dim + edge_feature_dim + edge_hidden_dim, hidden_dim),
+            nn.LeakyReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, output_dim),
+            nn.Sigmoid()
+        )
+        
+    
+    def forward(self, X, edge_index, edge_features, device="cpu", return_emb=False):
+        
+        X = torch.squeeze(X, dim=0)
+        N = X.shape[0]
+
+        X_norm = torch.zeros_like(X)
+        
+        epsilon = 10e-5 * torch.ones(X.shape, device=device)
+        std = X.std(dim=0, unbiased=False) + epsilon
+        X_norm = (X - X.mean(dim=0)) / std           
+        
+        edge_features = torch.squeeze(edge_features, dim=0)
+        edge_features_norm = torch.zeros_like(edge_features)
+        epsilon = 10e-5 * torch.ones(edge_features.shape, device=device)
+        std = edge_features.std(dim=0, unbiased=False) + epsilon
+        edge_features_norm = (edge_features - edge_features.mean(dim=0)) / std
+        edge_features_NN = self.edge_inputnetwork(edge_features_norm)
+
+        alpha_dir = self.attention_direct(edge_features_NN)
+        alpha_rev = self.attention_reverse(edge_features_NN)
+        alpha = torch.cat([alpha_dir, alpha_rev], dim=0).float()
+        
+        edge_index = torch.squeeze(edge_index, dim=0).long()
+        E = edge_index.shape[1]
+        src, dst = edge_index
+        
+        # Feature transformation to latent space
+        node_emb = self.inputnetwork(X_norm)
+        
+        ind_p1 = torch.cat((torch.arange(0, N, dtype=int, device=device), src, dst))
+        ind_p2 = torch.cat((torch.arange(0, N, dtype=int, device=device), dst, src))
+
+        # Niters x EdgeConv block
+        for graphconv in self.graphconvs:
+            node_emb = graphconv(node_emb, ind_p1, ind_p2, alpha=alpha, device=device)
+            
+        edge_emb = torch.cat([node_emb[src], node_emb[dst], edge_features_NN, edge_features_norm], dim=-1)    
+        pred = self.edgenetwork(edge_emb).squeeze(-1) 
+        if not return_emb:
+            return pred
+        return pred, node_emb
