@@ -49,7 +49,7 @@ class ClusterDataset(Dataset):
 
     def download(self):
         files = glob(f"{self.histo_path}/*.root")
-        print(files)
+
         for id in range(len(files)):
             file = uproot.open(files[id])
 
@@ -125,7 +125,8 @@ class ClusterDataset(Dataset):
             # Edge and y definition for testing purposes
             edges = np.array(
                 [list(range(nTracksters)), list(range(nTracksters-1, -1, -1))])
-            y = edges[:, 100:300]
+            y = np.zeros(nTracksters)
+            y[100:300] = 1
 
             # Read data from `raw_path`.
             data = Data(x=nodes, num_nodes=nTracksters, edge_index=torch.from_numpy(
