@@ -22,7 +22,7 @@ class ClusterDataset(Dataset):
 
     @property
     def processed_file_names(self):
-        return glob(f"{self.processed_dir}/*")
+        return glob(f"{self.processed_dir}/data_*.pt")
 
     # use this to load the tree if some of file.keys() are duplicates ending with different numbers
     def load_branch_with_highest_cycle(self, file, branch_name):
