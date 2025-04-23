@@ -12,6 +12,9 @@ from torch_geometric.data import Dataset, Data
 
 
 class ClusterDataset(Dataset):
+    node_feature_keys = ["barycenter_x", "barycenter_y", "barycenter_z", "barycenter_eta", "barycenter_phi", "eVector0_x", "eVector0_y", "eVector0_z",  "EV1", "EV2", "EV3", "sigmaPCA1", "sigmaPCA2", "sigmaPCA3", "num_LCs",
+                         "num_hits", "raw_energy", "raw_em_energy", "photon_prob", "electron_prob", "muon_prob", "neutral_pion_prob", "charged_hadron_prob", "neutral_hadron_prob", "z_min", "z_max", "LC_density", "trackster_density", "time"]
+
     def __init__(self, root, histo_path, transform=None, pre_transform=None, pre_filter=None):
         self.histo_path = histo_path
         super().__init__(root, transform, pre_transform, pre_filter)
@@ -57,6 +60,8 @@ class ClusterDataset(Dataset):
                 file, 'ticlDumper/trackstersCLUE3DHigh')
             allclusters = self.load_branch_with_highest_cycle(
                 file, 'ticlDumper/clusters')
+            allsuperclustering = self.load_branch_with_highest_cycle(
+                file, 'ticlDumper/superclustering')
 
             node_feature_keys_before = ["barycenter_x", "barycenter_y", "barycenter_z", "barycenter_eta", "barycenter_phi", "eVector0_x",
                                         "eVector0_y", "eVector0_z",  "EV1", "EV2", "EV3", "sigmaPCA1", "sigmaPCA2", "sigmaPCA3", "raw_energy", "raw_em_energy", "time"]
@@ -104,42 +109,58 @@ class ClusterDataset(Dataset):
             data["neutral_hadron_prob"] = alltracksters.arrays()[
                 "id_probabilities"][:, :, 5]
 
-            node_feature_keys = ["barycenter_x", "barycenter_y", "barycenter_z", "barycenter_eta", "barycenter_phi", "eVector0_x", "eVector0_y", "eVector0_z",  "EV1", "EV2", "EV3", "sigmaPCA1", "sigmaPCA2", "sigmaPCA3", "num_LCs",
-                                 "num_hits", "raw_energy", "raw_em_energy", "photon_prob", "electron_prob", "muon_prob", "neutral_pion_prob", "charged_hadron_prob", "neutral_hadron_prob", "z_min", "z_max", "LC_density", "trackster_density", "time"]
+            edges = allsuperclustering.arrays().linkedResultTracksters
+            data["y"] = [edge[ak.num(edge) > 1] for edge in edges]
 
-            for event in range(len(NTracksters)):
-                features = np.zeros(
-                    (NTracksters[event], len(node_feature_keys)))
-                for i, key in enumerate(node_feature_keys):
-                    features[:, i] = ak.to_numpy(data[event][key])
+            torch.save(data, osp.join(self.raw_dir, f'data_id_{id}.pt'))
 
-                torch.save(torch.from_numpy(features),
-                           osp.join(self.raw_dir, f'features_id_{id}_event_{event}.pt'))
+            # for event in range(len(NTracksters)):
+            #     features = np.zeros(
+            #         (NTracksters[event], len(node_feature_keys)))
+            #     for i, key in enumerate(node_feature_keys):
+            #         features[:, i] = ak.to_numpy(data[event][key])
+
+            #     edges = allsuperclustering.arrays(
+            #     )[event].linkedResultTracksters
+
+            #     y = torch.from_numpy(ak.to_numpy(edges[ak.num(edges) > 1]))
+            #     torch.save(torch.from_numpy(features),
+            #                osp.join(self.raw_dir, f'data_id_{id}_event_{event}.pt'))
 
     def process(self):
         idx = 0
         for raw_path in self.raw_paths:
-            nodes = torch.load(raw_path)
-            nTracksters = nodes.shape[0]
+            run = torch.load(raw_path)
 
-            # Edge and y definition for testing purposes
-            edges = np.array(
-                [list(range(nTracksters)), list(range(nTracksters-1, -1, -1))])
-            y = np.zeros(nTracksters)
-            y[100:300] = 1
+            nEvents = run.shape[0]
 
-            # Read data from `raw_path`.
-            data = Data(x=nodes, num_nodes=nTracksters, edge_index=torch.from_numpy(
-                edges), y=torch.from_numpy(y))
+            for event in range(nEvents):
+                nTracksters = len(run[event].barycenter_x)
 
-            if self.pre_filter is not None and not self.pre_filter(data):
-                continue
+                features = np.zeros((nTracksters, len(self.node_feature_keys)))
+                for i, key in enumerate(self.node_feature_keys):
+                    features[:, i] = ak.to_numpy(run[key])
 
-            if self.pre_transform is not None:
-                data = self.pre_transform(data)
+                # Create fully connected graph, as sparse graph building not stored anymore
+                edges = [[], []]
+                for i in range(nTracksters):
+                    edges[0].extend([i] * (nTracksters))
+                    edges[1].extend(list(range(nTracksters)))
+                edges = np.array(edges)
 
-            torch.save(data, osp.join(self.processed_dir, f'data_{idx}.pt'))
-            idx += 1
+                # Read data from `raw_path`.
+                data = Data(x=features, num_nodes=nTracksters, edge_index=torch.from_numpy(
+                    edges), y=torch.from_numpy(ak.to_numpy(run[event].y).t().contiguous()))
+
+                if self.pre_filter is not None and not self.pre_filter(data):
+                    continue
+
+                if self.pre_transform is not None:
+                    data = self.pre_transform(data)
+
+                torch.save(data, osp.join(
+                    self.processed_dir, f'data_{idx}.pt'))
+                idx += 1
 
     def len(self):
         return len(self.processed_file_names)
