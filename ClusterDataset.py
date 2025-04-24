@@ -131,15 +131,14 @@ class ClusterDataset(Dataset):
         idx = 0
         for raw_path in self.raw_paths:
             run = torch.load(raw_path)
-
-            nEvents = run.shape[0]
+            nEvents = len(run)
 
             for event in range(nEvents):
                 nTracksters = len(run[event].barycenter_x)
 
                 features = np.zeros((nTracksters, len(self.node_feature_keys)))
                 for i, key in enumerate(self.node_feature_keys):
-                    features[:, i] = ak.to_numpy(run[key])
+                    features[:, i] = ak.to_numpy(run[event][key])
 
                 # Create fully connected graph, as sparse graph building not stored anymore
                 edges = [[], []]
@@ -150,7 +149,7 @@ class ClusterDataset(Dataset):
 
                 # Read data from `raw_path`.
                 data = Data(x=features, num_nodes=nTracksters, edge_index=torch.from_numpy(
-                    edges), y=torch.from_numpy(ak.to_numpy(run[event].y).t().contiguous()))
+                    edges), y=torch.from_numpy(ak.to_numpy(run[event].y)).t().contiguous())
 
                 if self.pre_filter is not None and not self.pre_filter(data):
                     continue
