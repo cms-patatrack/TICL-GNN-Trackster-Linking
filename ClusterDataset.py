@@ -2,10 +2,12 @@ import os.path as osp
 from glob import glob
 
 import tqdm as tqdm
+from itertools import chain
 
 import uproot as uproot
 import awkward as ak
 import numpy as np
+from sklearn.neighbors import KDTree
 
 import torch
 from torch_geometric.data import Dataset, Data
@@ -67,34 +69,42 @@ class ClusterDataset(Dataset):
                                         "eVector0_y", "eVector0_z",  "EV1", "EV2", "EV3", "sigmaPCA1", "sigmaPCA2", "sigmaPCA3", "raw_energy", "raw_em_energy", "time"]
             data = alltracksters.arrays(node_feature_keys_before)
 
-            num_LCs = ak.count(alltracksters.arrays().vertices_indexes, axis=2)
-            data["num_LCs"] = num_LCs
-            data["z_min"] = ak.min(alltracksters.arrays().vertices_z, axis=2)
-            data["z_max"] = ak.max(alltracksters.arrays().vertices_z, axis=2)
-
-            hits = ak.to_list(np.zeros_like(data.num_LCs))
-            length = ak.to_list(np.zeros_like(data.num_LCs))
-            density = ak.to_list(np.zeros_like(data.num_LCs))
-
-            volume = 2*(3 - 1.5) * (2 * 47)
-            data["LC_density"] = data.num_LCs / volume
-
             cluster_number_of_hits = allclusters.arrays().cluster_number_of_hits
             cluster_layer_id = allclusters.arrays().cluster_layer_id
             vertices_indexes = alltracksters.arrays().vertices_indexes
+            alltracksters_array = alltracksters.arrays()
             NTracksters = alltracksters.arrays().NTracksters
 
-            for i in range(len(alltracksters.arrays())):
-                for j in range(alltracksters.arrays().NTracksters[i]):
-                    hits[i][j] = ak.sum(
-                        cluster_number_of_hits[i][vertices_indexes[i][j]])
-                    length[i][j] = (ak.max(cluster_layer_id[i][vertices_indexes[i][j]]) -
-                                    ak.min(cluster_layer_id[i][vertices_indexes[i][j]])) / 47
-                    density[i][j] = NTracksters[i] / volume
+            num_LCs = ak.count(alltracksters_array.vertices_indexes, axis=2)
+            data["num_LCs"] = num_LCs
+            data["z_min"] = ak.min(alltracksters_array.vertices_z, axis=2)
+            data["z_max"] = ak.max(alltracksters_array.vertices_z, axis=2)
+
+            data["vertices"] = ak.concatenate([alltracksters_array["vertices_x"][:, :, :, np.newaxis], alltracksters_array["vertices_y"]
+                                              [:, :, :, np.newaxis], alltracksters_array["vertices_z"][:, :, :, np.newaxis]], axis=-1)
+
+            hits = ak.to_list(np.zeros_like(data.num_LCs))
+            length = ak.to_list(np.zeros_like(data.num_LCs))
+
+            cluster_hits = cluster_number_of_hits[ak.flatten(
+                vertices_indexes, axis=-1)]
+            cluster_layer_ids = cluster_layer_id[ak.flatten(
+                vertices_indexes, axis=-1)]
+            vertices_count = ak.count(vertices_indexes, axis=-1)
+
+            for i in range(len(data.num_LCs)):
+                hits[i] = ak.sum(ak.unflatten(
+                    cluster_hits[i], vertices_count[i]), axis=-1)
+                length[i] = (ak.max(ak.unflatten(cluster_layer_ids[i], vertices_count[i]), axis=-1) -
+                             ak.min(ak.unflatten(cluster_layer_ids[i], vertices_count[i]), axis=-1)) / 47
 
             data["num_hits"] = hits
             data["length"] = length
-            data["trackster_density"] = density
+
+            volume = 2*(3 - 1.5) * (2 * 47)
+            data["LC_density"] = data.num_LCs / volume
+            data["trackster_density"] = ak.Array(
+                np.zeros_like(data.num_LCs)) + NTracksters / volume
 
             data["photon_prob"] = alltracksters.arrays()[
                 "id_probabilities"][:, :, 0]
@@ -114,26 +124,15 @@ class ClusterDataset(Dataset):
 
             torch.save(data, osp.join(self.raw_dir, f'data_id_{id}.pt'))
 
-            # for event in range(len(NTracksters)):
-            #     features = np.zeros(
-            #         (NTracksters[event], len(node_feature_keys)))
-            #     for i, key in enumerate(node_feature_keys):
-            #         features[:, i] = ak.to_numpy(data[event][key])
-
-            #     edges = allsuperclustering.arrays(
-            #     )[event].linkedResultTracksters
-
-            #     y = torch.from_numpy(ak.to_numpy(edges[ak.num(edges) > 1]))
-            #     torch.save(torch.from_numpy(features),
-            #                osp.join(self.raw_dir, f'data_id_{id}_event_{event}.pt'))
-
     def process(self):
         idx = 0
         for raw_path in self.raw_paths:
+            print(raw_path)
             run = torch.load(raw_path)
             nEvents = len(run)
 
             for event in range(nEvents):
+                print(event)
                 nTracksters = len(run[event].barycenter_x)
 
                 features = np.zeros((nTracksters, len(self.node_feature_keys)))
@@ -143,13 +142,58 @@ class ClusterDataset(Dataset):
                 # Create fully connected graph, as sparse graph building not stored anymore
                 edges = [[], []]
                 for i in range(nTracksters):
-                    edges[0].extend([i] * (nTracksters))
-                    edges[1].extend(list(range(nTracksters)))
+                    edges[0].extend([i] * (nTracksters-1))
+                    edges[1].extend(
+                        list(chain(range(i), range(i+1, nTracksters))))
+
                 edges = np.array(edges)
+                edge_features = np.zeros((len(edges[0, :]), 7))
+
+                edge_features[:, 0] = np.abs(
+                    features[edges[1, :], 16] - features[edges[0, :], 16])
+                edge_features[:, 1] = np.abs(
+                    features[edges[1, :], 2] - features[edges[0, :], 2])
+                edge_features[:, 4] = np.linalg.norm(
+                    features[edges[1, :], :2] - features[edges[0, :], :2], axis=1)
+                edge_features[:, 5] = np.arccos(np.clip(np.sum(np.multiply(
+                    features[edges[1, :], 5:8], features[edges[0, :], 5:8]), axis=1), a_min=-1, a_max=1))
+                edge_features[:, 6] = np.abs(
+                    features[edges[1, :], 28] - features[edges[0], 28])
+
+                transp = edges.T
+                edge_indices = np.zeros(
+                    (nTracksters, nTracksters, ), dtype=np.int64)
+
+                for i in range(len(edges[0, :])):
+                    edge_indices[transp[i, 0], transp[i, 1]] = i
+
+                # for root in range(nTracksters):
+                #     tree = KDTree(run.vertices[event, root], leaf_size=2)
+                #     num = len(run.vertices[event, root])
+                #     for target in range(root, nTracksters):
+                #         if (root != target):
+                #             dist, _ = tree.query(
+                #                 run.vertices[event, target], k=num)
+                #             edge_features[edge_indices[root,
+                #                                        target], 2] = np.min(dist)
+                #             edge_features[edge_indices[root,
+                #                                        target], 3] = np.max(dist)
+
+                #             edge_features[edge_indices[target, root], 2] = np.min(
+                #                 dist)
+                #             edge_features[edge_indices[target, root], 3] = np.max(
+                #                 dist)
+                #         else:
+                #             edge_features[edge_indices[root, target], 2] = 0
+                #             edge_features[edge_indices[root, target], 3] = 0
+
+                y = np.zeros(len(edges[0, :]))
+                for comb in ak.to_numpy(run[event].y):
+                    y[edge_indices[comb[0], comb[1]]] = 1
 
                 # Read data from `raw_path`.
-                data = Data(x=features, num_nodes=nTracksters, edge_index=torch.from_numpy(
-                    edges), y=torch.from_numpy(ak.to_numpy(run[event].y)).t().contiguous())
+                data = Data(x=torch.from_numpy(features), num_nodes=nTracksters,
+                            edge_index=torch.from_numpy(edges), edges_features=torch.from_numpy(edge_features), y=torch.from_numpy(y))
 
                 if self.pre_filter is not None and not self.pre_filter(data):
                     continue
