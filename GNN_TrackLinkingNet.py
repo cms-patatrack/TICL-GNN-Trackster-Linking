@@ -1,7 +1,9 @@
 import numpy as np
+
 import torch
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
+import torch.nn.functional as F
 
 from EdgeConvBlock import EdgeConvBlock
 
@@ -16,10 +18,35 @@ def weight_init(m):
 def prepare_network_input_data(X, edge_index, edge_features=None):
     X = torch.nan_to_num(X, nan=0.0)
 
-    if edge_features:
+    if edge_features != None:
         edge_features = torch.nan_to_num(edge_features, nan=0.0)
-        return torch.unsqueeze(X, dim=0), torch.unsqueeze(edge_index, dim=0).float(), torch.unsqueeze(edge_features, dim=0).float()
+        return torch.unsqueeze(X, dim=0).float(), torch.unsqueeze(edge_index, dim=0).float(), torch.unsqueeze(edge_features, dim=0).float()
     return torch.unsqueeze(X, dim=0).float(), torch.unsqueeze(edge_index, dim=0).float()
+
+
+class FocalLoss(nn.Module):
+    def __init__(self, gamma=2, alpha=0.4):
+        super(FocalLoss, self).__init__()
+        self.gamma = gamma
+        self.alpha = alpha
+
+    def forward(self, predictions, targets):
+        """Binary focal loss, mean.
+
+        Per https://discuss.pytorch.org/t/is-this-a-correct-implementation-for-focal-loss-in-pytorch/43327/5 with
+        improvements for alpha.
+        :param bce_loss: Binary Cross Entropy loss, a torch tensor.
+        :param targets: a torch tensor containing the ground truth, 0s and 1s.
+        :param gamma: focal loss power parameter, a float scalar.
+        :param alpha: weight of the class indicated by 1, a float scalar.
+        """
+        ce_loss = F.binary_cross_entropy(
+            predictions, targets, reduction='none')
+        p_t = torch.exp(-ce_loss)
+        alpha_tensor = (1 - self.alpha) + targets * (2 * self.alpha - 1)
+        # alpha if target = 1 and 1 - alpha if target = 0
+        f_loss = (alpha_tensor * (1 - p_t) ** self.gamma * ce_loss).mean()
+        return f_loss * 1000
 
 
 class GNN_TrackLinkingNet(nn.Module):
@@ -95,7 +122,7 @@ class GNN_TrackLinkingNet(nn.Module):
         std = X.std(dim=0, unbiased=False) + epsilon
         X_norm = (X - X.mean(dim=0)) / std
 
-        if edge_features:
+        if edge_features != None:
             edge_features = torch.squeeze(edge_features, dim=0)
             edge_features_norm = torch.zeros_like(edge_features)
             epsilon = 10e-5 * torch.ones(edge_features.shape, device=device)
@@ -129,7 +156,7 @@ class GNN_TrackLinkingNet(nn.Module):
             node_emb = graphconv(node_emb, ind_p1, ind_p2,
                                  alpha=alpha, device=device)
 
-        if edge_features:
+        if edge_features != None:
             edge_emb = torch.cat(
                 [node_emb[src], node_emb[dst], edge_features_NN, edge_features_norm], dim=-1)
         else:

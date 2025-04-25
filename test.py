@@ -11,6 +11,8 @@ from sklearn.metrics import confusion_matrix, roc_curve, auc, f1_score, balanced
 from sklearn.utils.class_weight import compute_sample_weight
 from sklearn.metrics import class_likelihood_ratios, precision_recall_fscore_support
 
+import seaborn as sn
+
 import mplhep as hep
 
 # plt.style.use(hep.style.CMS)
@@ -222,20 +224,21 @@ def test(truth, scores, classification_threshold=0.7, output_folder=None, epoch=
     max_el = max(np.amax(cf_matrix/tot), np.amax(cf_matrix_w_norm))
 
     # plot confusion matrix
-    fig, px = plt.subplots(1, 2, figsize=(8, 4))
+    fig, ax = plt.subplots(1, 2, figsize=(8, 4))
     plt.set_cmap("viridis")
-    px[0].set_xlabel("Predicted")
-    px[0].set_ylabel("True")
-    cax = px[0].matshow(cf_matrix/tot)
+    sn.heatmap(cf_matrix/tot, annot=True, ax=ax[0])
+    ax[0].set_xlabel("Predicted")
+    ax[0].set_ylabel("True")
+    # cax = px[0].matshow(cf_matrix/tot)
+    ax[0].set_title(f"Threshold: {classification_threshold}", fontsize=14)
 
-    px[0].set_title(f"(ACC: {ACC:.4f}, TPR: {results['TPR']:.4f}, TNR: {results['TNR']:.4f})\nThreshold: {classification_threshold}",
-                    fontsize=14)
+    sn.heatmap(cf_matrix_w_norm, annot=True, ax=ax[1])
+    ax[1].set_xlabel("Predicted")
+    ax[1].set_ylabel("True")
+    ax[1].set_title(
+        f"Weighted. Threshold: {classification_threshold}", fontsize=14)
+    # cax = px[1].matshow(cf_matrix_w_norm)
 
-    px[1].set_xlabel("Predicted")
-    px[1].set_ylabel("True")
-    cax = px[1].matshow(cf_matrix_w_norm)
-    px[1].set_title(f"(BA: {results['BA']:.4f}, TPR: {results['TPR']:.4f}, TNR: {results['TNR']:.4f})\n Threshold: {classification_threshold}",
-                    fontsize=14)
     # fig.colorbar(cax)
 
     results["TN"], results["FP"], results["FN"], results["TP"] = TN, FP, FN, TP
@@ -357,10 +360,10 @@ def prediction_pairs(model, data_list, ev, thr, prepare_network_input_data=None,
     data_ev = prepare_test_data(data_list, ev)
     if prepare_network_input_data is not None:
         if edge_features:
-            if data_ev.edge_index.shape[1] != data_ev.edge_features.shape[0]:
+            if data_ev.edge_index.shape[1] != data_ev.edges_features.shape[0]:
                 print("ERROR: edge index shape is different from edge features shape")
                 return 0
-            inputs = prepare_network_input_data(data_ev.x, data_ev.edge_index, data_ev.edge_features,
+            inputs = prepare_network_input_data(data_ev.x, data_ev.edge_index, data_ev.edges_features,
                                                 device='cuda:0' if next(model.parameters()).is_cuda else 'cpu')
 
         else:

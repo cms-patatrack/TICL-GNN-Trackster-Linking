@@ -149,12 +149,16 @@ class ClusterDataset(Dataset):
                 edges = np.array(edges)
                 edge_features = np.zeros((len(edges[0, :]), 7))
 
+                edge_features[:, 4] = np.linalg.norm(
+                    features[edges[1, :], :2] - features[edges[0, :], :2], axis=1)
+
+                edges = edges[:, edge_features[:, 4] < 1]
+                edge_features = edge_features[edge_features[:, 4] < 1]
+
                 edge_features[:, 0] = np.abs(
                     features[edges[1, :], 16] - features[edges[0, :], 16])
                 edge_features[:, 1] = np.abs(
                     features[edges[1, :], 2] - features[edges[0, :], 2])
-                edge_features[:, 4] = np.linalg.norm(
-                    features[edges[1, :], :2] - features[edges[0, :], :2], axis=1)
                 edge_features[:, 5] = np.arccos(np.clip(np.sum(np.multiply(
                     features[edges[1, :], 5:8], features[edges[0, :], 5:8]), axis=1), a_min=-1, a_max=1))
                 edge_features[:, 6] = np.abs(
@@ -189,7 +193,10 @@ class ClusterDataset(Dataset):
 
                 y = np.zeros(len(edges[0, :]))
                 for comb in ak.to_numpy(run[event].y):
-                    y[edge_indices[comb[0], comb[1]]] = 1
+                    if (comb[0] != -1 and comb[1] != -1):
+                        y[edge_indices[comb[0], comb[1]]] = 1
+                    else:
+                        print("Problem")
 
                 # Read data from `raw_path`.
                 data = Data(x=torch.from_numpy(features), num_nodes=nTracksters,
