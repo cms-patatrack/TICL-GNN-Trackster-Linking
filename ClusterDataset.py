@@ -14,10 +14,13 @@ from torch_geometric.data import Dataset, Data
 
 
 class ClusterDataset(Dataset):
-    node_feature_keys = ["barycenter_x", "barycenter_y", "barycenter_z", "barycenter_eta", "barycenter_phi", "eVector0_x", "eVector0_y", "eVector0_z",  "EV1", "EV2", "EV3", "sigmaPCA1", "sigmaPCA2", "sigmaPCA3", "num_LCs",
-                         "num_hits", "raw_energy", "raw_em_energy", "photon_prob", "electron_prob", "muon_prob", "neutral_pion_prob", "charged_hadron_prob", "neutral_hadron_prob", "z_min", "z_max", "LC_density", "trackster_density", "time"]
+    node_feature_keys = ["barycenter_x", "barycenter_y", "barycenter_z", "barycenter_eta", "barycenter_phi", "eVector0_x", "eVector0_y", "eVector0_z", "EV1", "EV2", "EV3",
+                         "sigmaPCA1", "sigmaPCA2", "sigmaPCA3", "num_LCs", "num_hits", "raw_energy", "raw_em_energy", "photon_prob", "electron_prob", "muon_prob",
+                         "neutral_pion_prob", "charged_hadron_prob", "neutral_hadron_prob", "z_min", "z_max", "LC_density", "trackster_density", "time"]
 
-    def __init__(self, root, histo_path, transform=None, pre_transform=None, pre_filter=None):
+    def __init__(self, root, histo_path, transform=None, test=False, pre_transform=None, pre_filter=None):
+        self.test = test
+        self.test_idx = [1, 9, 15, 25, 35, 125, 155, 173, 183, 198]
         self.histo_path = histo_path
         super().__init__(root, transform, pre_transform, pre_filter)
 
@@ -56,14 +59,16 @@ class ClusterDataset(Dataset):
         files = glob(f"{self.histo_path}/*.root")
 
         for id in range(len(files)):
+            if (self.test and id not in self.test_idx):
+                continue
+            elif (not self.test and id in self.test_idx):
+                continue
+
             file = uproot.open(files[id])
 
-            alltracksters = self.load_branch_with_highest_cycle(
-                file, 'ticlDumper/trackstersCLUE3DHigh')
-            allclusters = self.load_branch_with_highest_cycle(
-                file, 'ticlDumper/clusters')
-            allsuperclustering = self.load_branch_with_highest_cycle(
-                file, 'ticlDumper/superclustering')
+            alltracksters = self.load_branch_with_highest_cycle(file, 'ticlDumper/trackstersCLUE3DHigh')
+            allclusters = self.load_branch_with_highest_cycle(file, 'ticlDumper/clusters')
+            allassociations = self.load_branch_with_highest_cycle(file, 'ticlDumper/associations')
 
             node_feature_keys_before = ["barycenter_x", "barycenter_y", "barycenter_z", "barycenter_eta", "barycenter_phi", "eVector0_x",
                                         "eVector0_y", "eVector0_z",  "EV1", "EV2", "EV3", "sigmaPCA1", "sigmaPCA2", "sigmaPCA3", "raw_energy", "raw_em_energy", "time"]
@@ -119,9 +124,16 @@ class ClusterDataset(Dataset):
             data["neutral_hadron_prob"] = alltracksters.arrays()[
                 "id_probabilities"][:, :, 5]
 
-            edges = allsuperclustering.arrays().linkedResultTracksters
-            data["y"] = [edge[ak.num(edge) > 1] for edge in edges]
+            # TODO: Find faster calc
+            score = allassociations.arrays().tsCLUE3D_recoToSim_CP_score
+            ys = ak.to_list(np.zeros_like(data.num_LCs))
 
+            for i in range(len(NTracksters)):
+                y = np.full(NTracksters[i], -1)
+                y[score[i, :, 0] < 0.2] = 0
+                y[score[i, :, 1] < 0.2] = 1
+
+            data["y"] = ys
             torch.save(data, osp.join(self.raw_dir, f'data_id_{id}.pt'))
 
     def process(self):
@@ -132,8 +144,9 @@ class ClusterDataset(Dataset):
             nEvents = len(run)
 
             for event in range(nEvents):
-                print(event)
                 nTracksters = len(run[event].barycenter_x)
+                if (nTracksters <= 1):
+                    continue
 
                 features = np.zeros((nTracksters, len(self.node_feature_keys)))
                 for i, key in enumerate(self.node_feature_keys):
@@ -149,20 +162,11 @@ class ClusterDataset(Dataset):
                 edges = np.array(edges)
                 edge_features = np.zeros((len(edges[0, :]), 7))
 
-                edge_features[:, 4] = np.linalg.norm(
-                    features[edges[1, :], :2] - features[edges[0, :], :2], axis=1)
-
-                edges = edges[:, edge_features[:, 4] < 1]
-                edge_features = edge_features[edge_features[:, 4] < 1]
-
-                edge_features[:, 0] = np.abs(
-                    features[edges[1, :], 16] - features[edges[0, :], 16])
-                edge_features[:, 1] = np.abs(
-                    features[edges[1, :], 2] - features[edges[0, :], 2])
-                edge_features[:, 5] = np.arccos(np.clip(np.sum(np.multiply(
-                    features[edges[1, :], 5:8], features[edges[0, :], 5:8]), axis=1), a_min=-1, a_max=1))
-                edge_features[:, 6] = np.abs(
-                    features[edges[1, :], 28] - features[edges[0], 28])
+                edge_features[:, 0] = np.abs(features[edges[1, :], 16] - features[edges[0, :], 16])
+                edge_features[:, 1] = np.abs(features[edges[1, :], 2] - features[edges[0, :], 2])
+                edge_features[:, 4] = np.linalg.norm(features[edges[1, :], :2] - features[edges[0, :], :2], axis=1)
+                edge_features[:, 5] = np.arccos(np.clip(np.sum(np.multiply(features[edges[1, :], 5:8], features[edges[0, :], 5:8]), axis=1), a_min=-1, a_max=1))
+                edge_features[:, 6] = np.abs(features[edges[1, :], 28] - features[edges[0], 28])
 
                 transp = edges.T
                 edge_indices = np.zeros(
@@ -171,32 +175,28 @@ class ClusterDataset(Dataset):
                 for i in range(len(edges[0, :])):
                     edge_indices[transp[i, 0], transp[i, 1]] = i
 
-                # for root in range(nTracksters):
-                #     tree = KDTree(run.vertices[event, root], leaf_size=2)
-                #     num = len(run.vertices[event, root])
-                #     for target in range(root, nTracksters):
-                #         if (root != target):
-                #             dist, _ = tree.query(
-                #                 run.vertices[event, target], k=num)
-                #             edge_features[edge_indices[root,
-                #                                        target], 2] = np.min(dist)
-                #             edge_features[edge_indices[root,
-                #                                        target], 3] = np.max(dist)
+                for root in range(nTracksters):
+                    tree = KDTree(run.vertices[event, root], leaf_size=2)
+                    num = len(run.vertices[event, root])
+                    for target in range(root, nTracksters):
+                        if (root != target):
+                            dist, _ = tree.query(
+                                run.vertices[event, target], k=num)
+                            edge_features[edge_indices[root, target], 2] = np.min(dist)
+                            edge_features[edge_indices[root, target], 3] = np.max(dist)
 
-                #             edge_features[edge_indices[target, root], 2] = np.min(
-                #                 dist)
-                #             edge_features[edge_indices[target, root], 3] = np.max(
-                #                 dist)
-                #         else:
-                #             edge_features[edge_indices[root, target], 2] = 0
-                #             edge_features[edge_indices[root, target], 3] = 0
+                            edge_features[edge_indices[target, root], 2] = np.min(
+                                dist)
+                            edge_features[edge_indices[target, root], 3] = np.max(
+                                dist)
+                        else:
+                            edge_features[edge_indices[root, target], 2] = 0
+                            edge_features[edge_indices[root, target], 3] = 0
 
-                y = np.zeros(len(edges[0, :]))
-                for comb in ak.to_numpy(run[event].y):
-                    if (comb[0] != -1 and comb[1] != -1):
-                        y[edge_indices[comb[0], comb[1]]] = 1
-                    else:
-                        print("Problem")
+                y = np.zeros(edges.shape[1])
+                for i, e in enumerate(edges.T):
+                    if ((run[event].y[e[0]] != -1) and (run[event].y[e[0]] == run[event].y[e[0]])):
+                        y[i] = 1
 
                 # Read data from `raw_path`.
                 data = Data(x=torch.from_numpy(features), num_nodes=nTracksters,
