@@ -124,14 +124,16 @@ class ClusterDataset(Dataset):
             data["neutral_hadron_prob"] = alltracksters.arrays()[
                 "id_probabilities"][:, :, 5]
 
-            # TODO: Find faster calc
-            score = allassociations.arrays().tsCLUE3D_recoToSim_CP_score
+            # TODO: Check if correct calc
             ys = ak.to_list(np.zeros_like(data.num_LCs))
+            allassociations_arrays = allassociations.arrays()
+            idx = allassociations_arrays.tsCLUE3D_simToReco_CP[allassociations_arrays.tsCLUE3D_simToReco_CP_score < 0.9999]
 
             for i in range(len(NTracksters)):
                 y = np.full(NTracksters[i], -1)
-                y[score[i, :, 0] < 0.2] = 0
-                y[score[i, :, 1] < 0.2] = 1
+                y[idx[i, 0]] = 0
+                y[idx[i, 1]] = 1
+                ys[i] = y
 
             data["y"] = ys
             torch.save(data, osp.join(self.raw_dir, f'data_id_{id}.pt'))
@@ -195,7 +197,7 @@ class ClusterDataset(Dataset):
 
                 y = np.zeros(edges.shape[1])
                 for i, e in enumerate(edges.T):
-                    if ((run[event].y[e[0]] != -1) and (run[event].y[e[0]] == run[event].y[e[0]])):
+                    if ((run[event].y[e[0]] != -1) and (run[event].y[e[0]] == run[event].y[e[1]])):
                         y[i] = 1
 
                 # Read data from `raw_path`.
