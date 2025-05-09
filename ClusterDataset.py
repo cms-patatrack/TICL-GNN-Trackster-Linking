@@ -20,7 +20,6 @@ class ClusterDataset(Dataset):
 
     def __init__(self, root, histo_path, transform=None, test=False, pre_transform=None, pre_filter=None):
         self.test = test
-        self.test_idx = [1, 9, 15, 25, 35, 125, 155, 173, 183, 198]
         self.histo_path = histo_path
         super().__init__(root, transform, pre_transform, pre_filter)
 
@@ -56,17 +55,15 @@ class ClusterDataset(Dataset):
         return branch
 
     def download(self):
-        files = glob(f"{self.histo_path}/*.root")
+        if (self.test):
+            files = glob(f"{self.histo_path}/test/*.root")
+        else:
+            files = glob(f"{self.histo_path}/train/*.root")
 
         for id in range(len(files)):
-            if (self.test and id not in self.test_idx):
-                continue
-            elif (not self.test and id in self.test_idx):
-                continue
-
             file = uproot.open(files[id])
 
-            alltracksters = self.load_branch_with_highest_cycle(file, 'ticlDumper/trackstersCLUE3DHigh')
+            alltracksters = self.load_branch_with_highest_cycle(file, 'ticlDumper/ticlTrackstersCLUE3DHigh')
             allclusters = self.load_branch_with_highest_cycle(file, 'ticlDumper/clusters')
             allassociations = self.load_branch_with_highest_cycle(file, 'ticlDumper/associations')
 
@@ -78,6 +75,7 @@ class ClusterDataset(Dataset):
             cluster_layer_id = allclusters.arrays().cluster_layer_id
             vertices_indexes = alltracksters.arrays().vertices_indexes
             alltracksters_array = alltracksters.arrays()
+            allassociations_array = allassociations.arrays()
             NTracksters = alltracksters.arrays().NTracksters
 
             num_LCs = ak.count(alltracksters_array.vertices_indexes, axis=2)
@@ -91,10 +89,8 @@ class ClusterDataset(Dataset):
             hits = ak.to_list(np.zeros_like(data.num_LCs))
             length = ak.to_list(np.zeros_like(data.num_LCs))
 
-            cluster_hits = cluster_number_of_hits[ak.flatten(
-                vertices_indexes, axis=-1)]
-            cluster_layer_ids = cluster_layer_id[ak.flatten(
-                vertices_indexes, axis=-1)]
+            cluster_hits = cluster_number_of_hits[ak.flatten(vertices_indexes, axis=-1)]
+            cluster_layer_ids = cluster_layer_id[ak.flatten(vertices_indexes, axis=-1)]
             vertices_count = ak.count(vertices_indexes, axis=-1)
 
             for i in range(len(data.num_LCs)):
@@ -125,17 +121,22 @@ class ClusterDataset(Dataset):
                 "id_probabilities"][:, :, 5]
 
             # TODO: Check if correct calc
-            ys = ak.to_list(np.zeros_like(data.num_LCs))
-            allassociations_arrays = allassociations.arrays()
-            idx = allassociations_arrays.tsCLUE3D_simToReco_CP[allassociations_arrays.tsCLUE3D_simToReco_CP_score < 0.9999]
+            idx = allassociations_array.ticlTrackstersCLUE3DHigh_recoToSim_CP_score < 0.2
+            simTracksters = allassociations_array.ticlTrackstersCLUE3DHigh_recoToSim_CP[allassociations_array.ticlTrackstersCLUE3DHigh_recoToSim_CP_score < 0.2]
+            emptys = np.full_like(ak.count(allassociations_array.ticlTrackstersCLUE3DHigh_recoToSim_CP, axis=-1), -1)
 
-            for i in range(len(NTracksters)):
-                y = np.full(NTracksters[i], -1)
-                y[idx[i, 0]] = 0
-                y[idx[i, 1]] = 1
-                ys[i] = y
-
-            data["y"] = ys
+            data["y"] = ak.flatten(ak.where(
+                ak.count(simTracksters, axis=-1) == 1, allassociations_array.ticlTrackstersCLUE3DHigh_recoToSim_CP[idx],
+                ak.unflatten(emptys, 1, axis=-1)),
+                axis=-1)
+            data["shared_e"] = ak.flatten(ak.where(
+                ak.count(simTracksters, axis=-1) == 1, allassociations_array.ticlTrackstersCLUE3DHigh_recoToSim_CP_sharedE[idx],
+                ak.unflatten(emptys, 1, axis=-1)),
+                axis=-1)
+            data["score"] = ak.flatten(ak.where(
+                ak.count(simTracksters, axis=-1) == 1, allassociations_array.ticlTrackstersCLUE3DHigh_recoToSim_CP_score[idx],
+                ak.unflatten(emptys, 1, axis=-1)),
+                axis=-1)
             torch.save(data, osp.join(self.raw_dir, f'data_id_{id}.pt'))
 
     def process(self):
@@ -171,8 +172,7 @@ class ClusterDataset(Dataset):
                 edge_features[:, 6] = np.abs(features[edges[1, :], 28] - features[edges[0], 28])
 
                 transp = edges.T
-                edge_indices = np.zeros(
-                    (nTracksters, nTracksters, ), dtype=np.int64)
+                edge_indices = np.zeros((nTracksters, nTracksters, ), dtype=np.int64)
 
                 for i in range(len(edges[0, :])):
                     edge_indices[transp[i, 0], transp[i, 1]] = i
@@ -197,8 +197,9 @@ class ClusterDataset(Dataset):
 
                 y = np.zeros(edges.shape[1])
                 for i, e in enumerate(edges.T):
-                    if ((run[event].y[e[0]] != -1) and (run[event].y[e[0]] == run[event].y[e[1]])):
-                        y[i] = 1
+                    if (run[event].y[e[0]] != -1 and (run[event].y[e[0]] == run[event].y[e[1]])):
+                        y[i] = np.round((1-run[event].score[e[0]]) * run[event].shared_e[e[0]]/run[event].raw_energy[e[0]] +
+                                        (1-run[event].score[e[1]]) * run[event].shared_e[e[1]]/run[event].raw_energy[e[1]], 3)
 
                 # Read data from `raw_path`.
                 data = Data(x=torch.from_numpy(features), num_nodes=nTracksters,
