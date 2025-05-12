@@ -66,6 +66,7 @@ class ClusterDataset(Dataset):
             alltracksters = self.load_branch_with_highest_cycle(file, 'ticlDumper/ticlTrackstersCLUE3DHigh')
             allclusters = self.load_branch_with_highest_cycle(file, 'ticlDumper/clusters')
             allassociations = self.load_branch_with_highest_cycle(file, 'ticlDumper/associations')
+            allgraph = self.load_branch_with_highest_cycle(file, 'ticlDumper/TICLGraph')
 
             node_feature_keys_before = ["barycenter_x", "barycenter_y", "barycenter_z", "barycenter_eta", "barycenter_phi", "eVector0_x",
                                         "eVector0_y", "eVector0_z",  "EV1", "EV2", "EV3", "sigmaPCA1", "sigmaPCA2", "sigmaPCA3", "raw_energy", "raw_em_energy", "time"]
@@ -76,6 +77,7 @@ class ClusterDataset(Dataset):
             vertices_indexes = alltracksters.arrays().vertices_indexes
             alltracksters_array = alltracksters.arrays()
             allassociations_array = allassociations.arrays()
+            allgraph_array = allgraph.arrays()
             NTracksters = alltracksters.arrays().NTracksters
 
             num_LCs = ak.count(alltracksters_array.vertices_indexes, axis=2)
@@ -137,6 +139,10 @@ class ClusterDataset(Dataset):
                 ak.count(simTracksters, axis=-1) == 1, allassociations_array.ticlTrackstersCLUE3DHigh_recoToSim_CP_score[idx],
                 ak.unflatten(emptys, 1, axis=-1)),
                 axis=-1)
+
+            data["inner"] = allgraph_array.inner
+            data["outer"] = allgraph_array.outer
+
             torch.save(data, osp.join(self.raw_dir, f'data_id_{id}.pt'))
 
     def process(self):
@@ -155,12 +161,11 @@ class ClusterDataset(Dataset):
                 for i, key in enumerate(self.node_feature_keys):
                     features[:, i] = ak.to_numpy(run[event][key])
 
-                # Create fully connected graph, as sparse graph building not stored anymore
+                # Create base graph from geometrical graph
                 edges = [[], []]
                 for i in range(nTracksters):
-                    edges[0].extend([i] * (nTracksters-1))
-                    edges[1].extend(
-                        list(chain(range(i), range(i+1, nTracksters))))
+                    edges[0].extend([i] * len(run[event].outer[i]))
+                    edges[1].extend(run[event].outer[i])
 
                 edges = np.array(edges)
                 edge_features = np.zeros((len(edges[0, :]), 7))
@@ -199,7 +204,7 @@ class ClusterDataset(Dataset):
                 for i, e in enumerate(edges.T):
                     if (run[event].y[e[0]] != -1 and (run[event].y[e[0]] == run[event].y[e[1]])):
                         y[i] = np.round((1-run[event].score[e[0]]) * run[event].shared_e[e[0]]/run[event].raw_energy[e[0]] +
-                                        (1-run[event].score[e[1]]) * run[event].shared_e[e[1]]/run[event].raw_energy[e[1]], 3)
+                                        (1-run[event].score[e[1]]) * run[event].shared_e[e[1]]/run[event].raw_energy[e[1]], 3)/2
 
                 # Read data from `raw_path`.
                 data = Data(x=torch.from_numpy(features), num_nodes=nTracksters,
