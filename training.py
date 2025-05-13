@@ -141,8 +141,7 @@ def train_val(model, trainLoader, valLoader, optimizer, loss_function, epochs, o
         TNR, TPR, thresholds = classification_thresholds_plot(val_pred_cls, val_true_cls, threshold_step=0.05,
                                                               output_folder=outputTrainingPlotsPath, epoch=epoch+1)
         classification_threshold = get_best_threshold(TNR, TPR, thresholds)
-        print(
-            f"Chosen classification threshold is: {classification_threshold}")
+        print(f"Chosen classification threshold is: {classification_threshold}")
 
         plot_prediction_distribution_standard_and_log(val_pred_cls, val_true_cls,
                                                       epoch=epoch+1, thr=classification_threshold,
@@ -174,15 +173,13 @@ def train_val(model, trainLoader, valLoader, optimizer, loss_function, epochs, o
             for param_group in optimizer.param_groups:
                 print(f"lr: {param_group['lr']}")
 
-        print(
-            f"epoch {epoch+1}: Train loss: {train_loss_history[-1]} \t Val loss: {val_loss_history[-1]}")
+        print(f"epoch {epoch+1}: Train loss: {train_loss_history[-1]} \t Val loss: {val_loss_history[-1]}")
 
         # Save the updated picture and pkl files of the losses
         save_loss(train_loss_history, val_loss_history, outputLossFunctionPath)
 
     # Save the final model
-    print(
-        f">>> Training finished. Saving model to {outputModelPath + '/model.pt'}")
+    print(f">>> Training finished. Saving model to {outputModelPath + '/model.pt'}")
     torch.save({
         'epoch': epoch+1,
         'model_state_dict': model.state_dict(),
@@ -194,43 +191,6 @@ def train_val(model, trainLoader, valLoader, optimizer, loss_function, epochs, o
         model.writer.close()
 
     return train_loss_history, val_loss_history
-
-
-def save_loss(train_loss_history, val_loss_history, outputLossFunctionPath):
-    # Saving the figure of the training and validation loss
-    fig = plt.figure(figsize=(9, 5))
-    # plt.style.use('seaborn-whitegrid')
-    epochs = len(train_loss_history)
-    plt.plot(range(1, epochs+1), train_loss_history,
-             label='train', linewidth=2)
-    plt.plot(range(1, epochs+1), val_loss_history, label='val', linewidth=2)
-    plt.ylabel("Loss", fontsize=16)
-    plt.xlabel("Epochs", fontsize=16)
-    plt.title("Training and Validation Loss", fontsize=18)
-    plt.legend()
-    plt.savefig(f"{outputLossFunctionPath}/losses.png")
-    plt.show()
-
-    # Save the train and validation loss histories to pkl files
-    with open(outputLossFunctionPath + 'train_loss_history.pkl', 'wb') as f:
-        pickle.dump(train_loss_history, f)
-
-    with open(outputLossFunctionPath + 'val_loss_history.pkl', 'wb') as f:
-        pickle.dump(val_loss_history, f)
-
-
-def print_training_dataset_statistics(trainDataset):
-    print(f"Number of events in training dataset: {len(trainDataset)}")
-    num_nodes, num_edges, num_neg, num_pos = 0, 0, 0, 0
-    for ev in trainDataset:
-        num_nodes += ev.num_nodes
-        num_edges += len(ev.edge_label)
-        num_pos += (ev.edge_label == 1).sum()
-        num_neg += (ev.edge_label == 0).sum()
-    print(f"Number of nodes: {num_nodes}")
-    print(f"Number of edges: {num_edges}")
-    print(f"Number of positive edges: {num_pos}")
-    print(f"Number of negative edges: {num_neg}")
 
 
 def plot_prediction_distribution_standard_and_log(pred, targets, epoch=None, thr=0.65, scores=None, folder=None, val=False):
@@ -301,7 +261,6 @@ def train(model, opt, loader, epoch, edge_features=True, emb_out=False, device=t
 
     epoch_loss = 0
     model.train()
-    j = 0
     for sample in tqdm(loader, desc=f"Training epoch {epoch}"):
         # reset optimizer and enable training mode
         opt.zero_grad()
@@ -313,14 +272,12 @@ def train(model, opt, loader, epoch, edge_features=True, emb_out=False, device=t
         if edge_features:
             if sample.edge_index.shape[1] != sample.edges_features.shape[0]:
                 continue
-            data = prepare_network_input_data(
-                sample.x, sample.edge_index, edge_features=sample.edges_features)
+            data = prepare_network_input_data(sample.x, sample.edge_index, edge_features=sample.edges_features)
         else:
-            data = prepare_network_input_data(
-                sample.x, sample.edge_index)
+            data = prepare_network_input_data(sample.x, sample.edge_index)
 
         if emb_out:
-            z, emb = model(*data, device=device)
+            z, _ = model(*data, device=device)
         else:
             z = model(*data, device=device)
 
@@ -331,6 +288,5 @@ def train(model, opt, loader, epoch, edge_features=True, emb_out=False, device=t
         loss.backward()
         opt.step()
         epoch_loss += loss
-        j += 1
 
-    return float(epoch_loss)/j
+    return float(epoch_loss)/len(loader)
