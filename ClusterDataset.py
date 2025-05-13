@@ -168,8 +168,10 @@ class ClusterDataset(Dataset):
                     edges[1].extend(run[event].outer[i])
 
                 edges = np.array(edges)
-                edge_features = np.zeros((len(edges[0, :]), 7))
+                if (edges.shape[1] < 2):
+                    continue
 
+                edge_features = np.zeros((len(edges[0, :]), 7))
                 edge_features[:, 0] = np.abs(features[edges[1, :], 16] - features[edges[0, :], 16])
                 edge_features[:, 1] = np.abs(features[edges[1, :], 2] - features[edges[0, :], 2])
                 edge_features[:, 4] = np.linalg.norm(features[edges[1, :], :2] - features[edges[0, :], :2], axis=1)
