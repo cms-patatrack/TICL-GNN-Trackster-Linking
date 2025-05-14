@@ -50,8 +50,7 @@ def classification_threshold_scores(scores, ground_truth, ax, threshold_step=0.0
         ax.plot(thresholds, TPR, 'ro-', label='TPR', linewidth=2)
         ax.plot(thresholds, F1, 'mo-', label='F1', linewidth=2)
         ax.set_xlabel("Threshold", fontsize=15)
-        ax.title(
-            "Accuracy / TPR / TNR / F1 based on the classification threshold value", fontsize=16)
+        ax.set_title("Accuracy / TPR / TNR / F1 based on the classification threshold value", fontsize=16)
         ax.legend()
 
         if save and output_folder is not None and filename is not None:
