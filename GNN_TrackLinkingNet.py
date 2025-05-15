@@ -24,6 +24,33 @@ def prepare_network_input_data(X, edge_index, edge_features=None):
     return torch.unsqueeze(X, dim=0).float(), torch.unsqueeze(edge_index, dim=0).float()
 
 
+class EarlyStopping:
+    def __init__(self, patience=5, delta=0):
+        self.patience = patience
+        self.delta = delta
+        self.best_score = None
+        self.early_stop = False
+        self.counter = 0
+        self.best_model_state = None
+
+    def __call__(self, model, val_loss):
+        score = -val_loss
+        if self.best_score is None:
+            self.best_score = score
+            self.best_model_state = model.state_dict()
+        elif score < self.best_score + self.delta:
+            self.counter += 1
+            if self.counter >= self.patience:
+                self.early_stop = True
+        else:
+            self.best_score = score
+            self.best_model_state = model.state_dict()
+            self.counter = 0
+
+    def load_best_model(self, model):
+        model.load_state_dict(self.best_model_state)
+
+
 class FocalLoss(nn.Module):
     def __init__(self, gamma=2, alpha=0.4):
         super(FocalLoss, self).__init__()

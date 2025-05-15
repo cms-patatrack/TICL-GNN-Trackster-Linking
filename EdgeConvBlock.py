@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 
+
 class EdgeConvBlock(nn.Module):
     """EdgeConv layer.
     .. math::
@@ -20,7 +21,7 @@ class EdgeConvBlock(nn.Module):
         self.activation = activation
         self.num_layers = len(out_feats)
         self.weighted_aggr = weighted_aggr
-        
+
         self.drop = nn.Dropout(dropout)
 
         self.convs = nn.ModuleList()
@@ -40,15 +41,14 @@ class EdgeConvBlock(nn.Module):
             self.sc_act = nn.ReLU()
 
     def forward(self, features, ind_p1, ind_p2, alpha=None, device='cpu'):
-        
         EDGE_EMB_p1 = features[ind_p1, :]
         EDGE_EMB_p2 = features[ind_p2, :] - EDGE_EMB_p1
         x = torch.cat((EDGE_EMB_p1, EDGE_EMB_p2), dim=1)
         N = features.shape[0]
         i = 0
+
         for conv, act in zip(self.convs, self.acts):
-            
-            x = conv(x) 
+            x = conv(x)
             if self.activation:
                 x = act(x)
             if i == 0:
@@ -57,16 +57,14 @@ class EdgeConvBlock(nn.Module):
 
         # Do aggregation
         if self.weighted_aggr and alpha is not None:
-            
             alpha_vec = torch.cat((torch.ones(N, device=device, dtype=float).float(), torch.squeeze(alpha)), dim=0)
-            
             x = torch.mul(alpha_vec, x.transpose(0, 1)).transpose(0, 1)
-            
+
         # Create a destination tensor to store the summed rows
         summed_matrix = torch.zeros(N, x.size(1), device=device).float()
         # Sum the rows based on the index using torch.scatter_add
         x = torch.scatter_add(summed_matrix, 0, ind_p1.unsqueeze(1).repeat(1, x.size(1)), x)
-        
+
         # Skip connection:
         if self.sc:
             sc = self.sc(features)
@@ -75,4 +73,3 @@ class EdgeConvBlock(nn.Module):
         out = self.sc_act(sc + x)
 
         return out
-    

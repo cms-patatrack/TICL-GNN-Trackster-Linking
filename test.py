@@ -83,7 +83,7 @@ def plot_validation_results(pred, y, save=True, output_folder=None, file_suffix=
 
     print_acc_scores(pred, y, best_threshold)
 
-    # TODOD: Save plots and data
+    # TODO: Save plots and data
     # if save and output_folder is not None and file_suffix is not None:
     #     ax.savefig(f"{output_folder}/{file_suffix}.png", dpi=300,
     #                bbox_inches='tight', transparent=True)
@@ -138,7 +138,8 @@ def get_best_threshold(TNR, TPR, thresholds, epsilon=0.02, default=0.65):
 
         if TNR[i] - TPR[i] < 0 and TNR[i+1] - TPR[i+1] >= epsilon:
             return round(0.5*(thresholds[i] + thresholds[i+1]), 3)
-    print("Chosen a default threshold...")
+
+    print("Choose a default threshold...")
     return default
 
 
@@ -151,13 +152,13 @@ def plot_edge_distribution(pred, y, axes):
     axes[0].hist(false_pred, bins=bins, density=1, label="False Edges", histtype='step')
     axes[0].hist(true_pred, bins=bins, density=1, label="True Edges", histtype='step')
     axes[0].legend(loc="upper center")  # loc="upper left")
-    axes[0].set_title("True and False edge prediction distribution", fontsize=14)
+    axes[0].set_title("True and False Edge Prediction Distribution", fontsize=14)
     axes[0].set_xlabel("Predicted score", fontsize=14)
     axes[0].set_ylabel('Probability [%]', fontsize=14)
 
     axes[1].hist(pred, bins=bins, label="All predictions")
     axes[1].legend()
-    axes[1].set_title("Edge prediction distribution", fontsize=14)
+    axes[1].set_title("Edge Prediction Distribution", fontsize=14)
     axes[1].set_xlabel("Predicted score", fontsize=14)
     axes[1].set_ylabel('Counts', fontsize=14)
 
@@ -169,6 +170,7 @@ def print_acc_scores(pred, y, thres=0.65):
     TN, FP, FN, TP = confusion_matrix(y_discrete, pred_discrete).ravel()
     tot = TN + FP + FN + TP
 
+    print(f"Scores for Classification with Threshold: {thres}.")
     print(f"F1 score: {f1_score(y_discrete, pred_discrete):.3f}")
     print(f"Balanced Accuracy: {balanced_accuracy_score(y_discrete, pred_discrete):.3f}")
     print(f"Accuracy: {(TP+TN)/tot:.3f}")
@@ -185,21 +187,21 @@ def print_acc_scores(pred, y, thres=0.65):
     print(f"F1 score Weighted: {fscore_w}")
 
     pos_lr, neg_lr = class_likelihood_ratios(y_discrete, pred_discrete, raise_warning=False)
-    print(f"positive_likelihood_ratio: {pos_lr}, negative_likelihood_ratio: {neg_lr}")
+    print(f"Positive Likelihood Ratio: {pos_lr}")
+    print(f"Negative Likelihood Ratio: {neg_lr}")
 
 
 def plot_roc_curve(pred, y, ax, thres=0.65):
-    pred_discrete = (pred > thres).astype(int)
     y_discrete = (y > 0).astype(int)
+    fpr, tpr, _ = roc_curve(y_discrete, pred)
 
-    fpr, tpr, _ = roc_curve(y_discrete, pred_discrete)
     ax.plot(fpr, tpr, color="darkorange", lw=2, label="ROC curve (area = %0.2f)" % auc(fpr, tpr))
     ax.plot([0, 1], [0, 1], color="navy", lw=2, linestyle="--")
     ax.set_xlim([0.0, 1.0])
     ax.set_ylim([0.0, 1.05])
-    ax.set_xlabel("False Positive Rate", fontsize=14)
-    ax.set_ylabel("True Positive Rate", fontsize=14)
-    ax.set_title("ROC", fontsize=14)
+    ax.set_xlabel("False Positive Rate")
+    ax.set_ylabel("True Positive Rate")
+    ax.set_title(f"ROC. Threshold: {thres}", fontsize=14)
     ax.legend(loc="lower right")
 
 
