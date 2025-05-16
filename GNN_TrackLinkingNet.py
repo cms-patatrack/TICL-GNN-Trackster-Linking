@@ -140,7 +140,6 @@ class GNN_TrackLinkingNet(nn.Module):
         )
 
     def forward(self, X, edge_index, edge_features=None, return_emb=False, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
-
         X = torch.squeeze(X, dim=0)
         N = X.shape[0]
 
@@ -154,8 +153,7 @@ class GNN_TrackLinkingNet(nn.Module):
             edge_features_norm = torch.zeros_like(edge_features)
             epsilon = 10e-5 * torch.ones(edge_features.shape, device=device)
             std = edge_features.std(dim=0, unbiased=False) + epsilon
-            edge_features_norm = (
-                edge_features - edge_features.mean(dim=0)) / std
+            edge_features_norm = (edge_features - edge_features.mean(dim=0)) / std
             edge_features_NN = self.edge_inputnetwork(edge_features_norm)
 
             alpha_dir = self.attention_direct(edge_features_NN)
@@ -173,22 +171,17 @@ class GNN_TrackLinkingNet(nn.Module):
         # Feature transformation to latent space
         node_emb = self.inputnetwork(X_norm)
 
-        ind_p1 = torch.cat(
-            (torch.arange(0, N, dtype=int, device=device), src, dst))
-        ind_p2 = torch.cat(
-            (torch.arange(0, N, dtype=int, device=device), dst, src))
+        ind_p1 = torch.cat((torch.arange(0, N, dtype=int, device=device), src, dst))
+        ind_p2 = torch.cat((torch.arange(0, N, dtype=int, device=device), dst, src))
 
         # Niters x EdgeConv block
         for graphconv in self.graphconvs:
-            node_emb = graphconv(node_emb, ind_p1, ind_p2,
-                                 alpha=alpha, device=device)
+            node_emb = graphconv(node_emb, ind_p1, ind_p2, alpha=alpha, device=device)
 
         if edge_features != None:
-            edge_emb = torch.cat(
-                [node_emb[src], node_emb[dst], edge_features_NN, edge_features_norm], dim=-1)
+            edge_emb = torch.cat([node_emb[src], node_emb[dst], edge_features_NN, edge_features_norm], dim=-1)
         else:
-            edge_emb = torch.cat(
-                [node_emb[src], node_emb[dst], edge_features_NN], dim=-1)
+            edge_emb = torch.cat([node_emb[src], node_emb[dst], edge_features_NN], dim=-1)
 
         pred = self.edgenetwork(edge_emb).squeeze(-1)
         if not return_emb:
