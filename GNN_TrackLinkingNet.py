@@ -6,6 +6,7 @@ from torch.utils.tensorboard import SummaryWriter
 import torch.nn.functional as F
 
 from EdgeConvBlock import EdgeConvBlock
+from ClusterDataset import ClusterDataset
 
 
 def weight_init(m):
@@ -17,6 +18,7 @@ def weight_init(m):
 
 def prepare_network_input_data(X, edge_index, edge_features=None):
     X = torch.nan_to_num(X, nan=0.0)
+    X = X[:, ClusterDataset.model_feature_keys]
 
     if edge_features != None:
         edge_features = torch.nan_to_num(edge_features, nan=0.0)
