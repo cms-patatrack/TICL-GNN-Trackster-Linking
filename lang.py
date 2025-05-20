@@ -89,8 +89,10 @@ class Lang:
             j += 1
         res[j] = self.word2index["<EOS>"]
 
-        if (index == 0):
+        if (index <= 0):
             res = np.pad(res, (1, 0), constant_values=self.word2index["<SOS>"])
+            res = np.pad(res, (np.abs(index), 0), constant_values=self.word2index["<PAD>"])
+            index = 0
 
         if res.shape[0] < seq_length:
             res = np.pad(res, (seq_length - res.shape[0], 0), constant_values=self.word2index["<PAD>"])
@@ -98,7 +100,7 @@ class Lang:
         if (seq_length >= 1):
             return res[index:seq_length+index]
 
-        return res[index:]
+        return np.trim_zeros(res[index:], trim='b')
 
     def seq2y(self, arr):
         numTrackster = np.max(arr)-3
