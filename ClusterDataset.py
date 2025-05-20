@@ -145,6 +145,10 @@ class ClusterDataset(Dataset):
             data["inner"] = allgraph_array.inner
             data["outer"] = allgraph_array.outer
 
+            roots = ak.num(allgraph_array.inner, axis=-1)
+            data["roots"] = ak.local_index(roots)[roots == 0]
+            data["idx"] = ak.local_index(data.barycenter_x)
+
             torch.save(data, osp.join(self.raw_dir, f'data_id_{id}.pt'))
 
     def process(self):
@@ -216,7 +220,8 @@ class ClusterDataset(Dataset):
                     num_nodes=nTracksters, edge_index=torch.from_numpy(edges),
                     edges_features=torch.from_numpy(edge_features),
                     y=torch.from_numpy(y),
-                    y_trans=torch.from_numpy(run[event].y.to_numpy()))
+                    y_trans=torch.from_numpy(run[event].y.to_numpy()),
+                    roots=torch.from_numpy(run[event].roots.to_numpy()))
 
                 if self.pre_filter is not None and not self.pre_filter(data):
                     continue

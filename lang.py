@@ -71,7 +71,7 @@ class Lang:
 
     def y2seq(self, arr):
         if (arr.shape[0] > 0):
-            numGroups = np.max(arr)+1
+            numGroups = int(np.max(arr)+1)
         else:
             numGroups == 0
         res = np.zeros(numGroups+arr.shape[0]+2)
