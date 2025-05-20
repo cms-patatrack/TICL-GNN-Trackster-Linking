@@ -1,8 +1,6 @@
 import numpy as np
-
-# Tokens for model to know if sequence is start or and of text
-SOS_token = 0
-EOS_token = 1
+import itertools
+import awkward as ak
 
 
 class Lang:
@@ -71,14 +69,14 @@ class Lang:
             return "".join([self.index2word[idx.item()] for idx in arr if idx > 2])
         return "".join([self.index2word[idx.item()] for idx in arr])
 
-    def y2seq(self, arr, index=0, seq_length=-1):
+    def y2seq(self, arr):
         if (arr.shape[0] > 0):
             numGroups = np.max(arr)+1
         else:
             numGroups == 0
-        res = np.zeros(numGroups+arr.shape[0]+1)
-
-        j = 0
+        res = np.zeros(numGroups+arr.shape[0]+2)
+        res[0] = 1
+        j = 1
         for group in range(numGroups):
             for (i, trackster) in enumerate(arr):
                 if (trackster == group):
@@ -88,19 +86,7 @@ class Lang:
             res[j] = self.word2index[";"]
             j += 1
         res[j] = self.word2index["<EOS>"]
-
-        if (index <= 0):
-            res = np.pad(res, (1, 0), constant_values=self.word2index["<SOS>"])
-            res = np.pad(res, (np.abs(index), 0), constant_values=self.word2index["<PAD>"])
-            index = 0
-
-        if res.shape[0] < seq_length:
-            res = np.pad(res, (seq_length - res.shape[0], 0), constant_values=self.word2index["<PAD>"])
-
-        if (seq_length >= 1):
-            return res[index:seq_length+index]
-
-        return np.trim_zeros(res[index:], trim='b')
+        return np.trim_zeros(res, trim='b')
 
     def seq2y(self, arr):
         numTrackster = np.max(arr)-3
@@ -117,13 +103,39 @@ class Lang:
                 y[i-4] = group
         return y
 
+    def subseq(self, seq, index=0, seq_length=-1):
+        if (index <= 0):
+            seq = np.pad(seq, (np.abs(index), 0), constant_values=self.word2index["<PAD>"])
+            index = 0
+
+        if seq.shape[0] < seq_length:
+            seq = np.pad(seq, (seq_length - seq.shape[0], 0), constant_values=self.word2index["<PAD>"])
+
+        if (seq_length >= 1):
+            return seq[index:seq_length+index]
+
+        return np.trim_zeros(seq[index:], trim='b')
+
+    def permute_groups(self, arr):
+        blocks = ak.Array(np.split(arr[1:-1], np.nonzero(arr == 3)[0])[:-1])
+        numGroups = len(blocks)
+        opts = np.array(list(itertools.permutations(list(range(numGroups)))))
+
+        permutations = ak.flatten(blocks[opts], -1).to_numpy()
+        permutations = np.pad(permutations, ((0, 0), (1, 0)), constant_values=self.word2index["<SOS>"])
+        permutations = np.pad(permutations, ((0, 0), (0, 1)), constant_values=self.word2index["<EOS>"])
+        return permutations
+
 
 if __name__ == "__main__":
     lang = Lang(14)
 
-    print(lang.y2seq(np.array([0, 0, 0, 1, 1, 1, -1, -1, 1, 0])))
-    print(lang.y2seq(np.array([0, 0, 0, 1, 1, 1, -1, -1, 1, 0]), index=3))
-    print(lang.y2seq(np.array([0, 0, 0, 1, 1, 1, -1, -1, 1, 0]), index=3, seq_length=5))
-    print(lang.y2seq(np.array([0, 1]), seq_length=5))
-    print(lang.y2seq(np.array([0, 1]), index=1, seq_length=5))
-    print(lang.seq2y(np.array([1, 4, 5, 8, 3, 6, 2])))
+    # print(lang.y2seq(np.array([0, 0, 0, 1, 1, 1, -1, -1, 1, 0])))
+    # print(lang.y2seq(np.array([0, 0, 0, 1, 1, 1, -1, -1, 1, 0]), index=3))
+    # print(lang.y2seq(np.array([0, 0, 0, 1, 1, 1, -1, -1, 1, 0]), index=3, seq_length=5))
+    # print(lang.y2seq(np.array([0, 1]), seq_length=5))
+    # print(lang.y2seq(np.array([0, 1]), index=1, seq_length=5))
+    # print(lang.seq2y(np.array([1, 4, 5, 8, 3, 6, 2])))
+
+    arr = lang.y2seq(np.array([0, 0, 0, 1, 1, 1, -1, -1, 0]))
+    print(lang.permute_groups(arr))
