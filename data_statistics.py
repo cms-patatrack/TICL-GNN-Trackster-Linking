@@ -10,14 +10,19 @@ def print_dataset_statistics(trainDataset, epsilon=0.1):
     print(f"Number of events in training dataset: {num_events}")
 
     num_nodes, num_edges, num_neg, num_pos = 0, 0, 0, 0
+    max_nodes = -1
     for ev in trainDataset:
         num_nodes += ev.num_nodes
         num_edges += len(ev.y)
         num_pos += (ev.y > epsilon).sum()
         num_neg += (ev.y <= epsilon).sum()
 
+        if (ev.num_nodes > max_nodes):
+            max_nodes = ev.num_nodes
+
     print(f"Number of nodes: {num_nodes}")
     print(f"Mean Number of nodes: {num_nodes/num_events}")
+    print(f"Max Number of nodes: {max_nodes}")
     print(f"Number of edges: {num_edges}")
     print(f"Mean Number of edges: {num_edges/num_events}")
     print(f"Number of positive edges: {num_pos}")

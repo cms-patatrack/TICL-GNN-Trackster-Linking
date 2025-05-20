@@ -211,8 +211,12 @@ class ClusterDataset(Dataset):
                                         (1-run[event].score[e[1]]) * run[event].shared_e[e[1]]/run[event].raw_energy[e[1]], 3)/2
 
                 # Read data from `raw_path`.
-                data = Data(x=torch.from_numpy(features), num_nodes=nTracksters,
-                            edge_index=torch.from_numpy(edges), edges_features=torch.from_numpy(edge_features), y=torch.from_numpy(y))
+                data = Data(
+                    x=torch.from_numpy(features),
+                    num_nodes=nTracksters, edge_index=torch.from_numpy(edges),
+                    edges_features=torch.from_numpy(edge_features),
+                    y=torch.from_numpy(y),
+                    y_trans=torch.from_numpy(run[event].y.to_numpy()))
 
                 if self.pre_filter is not None and not self.pre_filter(data):
                     continue
