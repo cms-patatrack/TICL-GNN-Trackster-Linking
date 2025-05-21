@@ -220,7 +220,7 @@ class ClusterDataset(Dataset):
                     num_nodes=nTracksters, edge_index=torch.from_numpy(edges),
                     edges_features=torch.from_numpy(edge_features),
                     y=torch.from_numpy(y),
-                    y_trans=torch.from_numpy(run[event].y.to_numpy()),
+                    cluster=torch.from_numpy(run[event].y.to_numpy()),
                     roots=torch.from_numpy(run[event].roots.to_numpy()))
 
                 if self.pre_filter is not None and not self.pre_filter(data):

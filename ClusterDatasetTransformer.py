@@ -85,17 +85,25 @@ class ClusterDataset(Dataset):
         converter = Lang(self.max_nodes)
         idx = 0
         for raw_path in self.raw_paths:
-            sample = torch.load(raw_path, weights_only=False)
+            orig_sample = torch.load(raw_path, weights_only=False)
 
-            if (sample == None):
+            if (orig_sample == None):
                 continue
 
-            if isinstance(sample, str):
+            if isinstance(orig_sample, str):
                 continue
 
-            for root in sample.roots:
+            orig_sample.cluster = orig_sample.y_trans.clone()
+
+            for root in orig_sample.roots:
+                sample = orig_sample.clone()
                 root_subgraph = np.append(self.build_subgraph(sample.edge_index, root, self.neighborhood), root)
                 root_subgraph = np.array(root_subgraph, dtype=int)
+
+                if (root_subgraph.shape[0] > 1):
+                    root_group = root_subgraph[sample.cluster[root_subgraph] == sample.cluster[root].item()]
+                else:
+                    root_group = root_subgraph
 
                 sample_seq = converter.y2seq(np.array(sample.y_trans[root_subgraph]))
                 length = sample_seq.shape[0]-1
@@ -109,11 +117,18 @@ class ClusterDataset(Dataset):
                     new_sample.input = torch.tensor(seq[:-1])
                     new_sample.y_trans = torch.tensor(seq[1:])
 
-                    if (new_sample.y_trans[-2] != 2 and new_sample.y_trans[-2] != 3):
-                        subgraph = np.append(self.build_subgraph(new_sample.edge_index, new_sample.y_trans[-2], self.neighborhood), root)
+                    if (new_sample.input[-1] > 3):
+                        new_root = int(converter.index2word[new_sample.y_trans[-2].item()])
+                        subgraph = np.append(self.build_subgraph(new_sample.edge_index, new_root, self.neighborhood), new_root)
                         subgraph = np.array(subgraph, dtype=int)
+
+                        if (subgraph.shape[0] > 1):
+                            new_sample.group = subgraph[new_sample.cluster[subgraph] == new_sample.cluster[new_root].item()]
+                        else:
+                            new_sample.group = subgraph
                     else:
                         subgraph = root_subgraph
+                        new_sample.group = root_group
 
                     new_sample.x = new_sample.x[subgraph]
 
@@ -123,8 +138,7 @@ class ClusterDataset(Dataset):
                     if self.pre_transform is not None:
                         new_sample = self.pre_transform(new_sample)
 
-                    torch.save(new_sample, osp.join(
-                        self.processed_dir, f'data_{idx}.pt'))
+                    torch.save(new_sample, osp.join(self.processed_dir, f'data_{idx}.pt'))
                     idx += 1
 
     def len(self):
