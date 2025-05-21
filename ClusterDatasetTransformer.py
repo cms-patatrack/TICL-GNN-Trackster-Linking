@@ -10,7 +10,9 @@ import numpy as np
 from sklearn.neighbors import KDTree
 
 import torch
-from torch_geometric.data import Dataset, Data
+from torch_geometric.data import Data
+from torch.utils.data import Dataset
+import torch.nn.functional as F
 
 from lang import Lang
 
@@ -22,12 +24,16 @@ class ClusterDataset(Dataset):
 
     model_feature_keys = np.array([0,  2,  3,  4,  6,  7, 10, 14, 15, 16, 17, 18, 22, 24, 25, 26, 28])
 
-    def __init__(self, root, data_path, max_nodes, input_length, neighborhood=4, transform=None, pre_transform=None, pre_filter=None):
+    def __init__(self, converter, root, data_path, max_nodes, input_length, neighborhood=4, transform=None, pre_transform=None, pre_filter=None):
         self.path = data_path
         self.max_nodes = max_nodes
         self.input_length = input_length
         self.neighborhood = neighborhood
-        super().__init__(root, transform, pre_transform, pre_filter)
+        self.converter = converter
+
+        self.processed_dir = f"{root}/processed"
+        self.raw_dir = f"{root}/raw"
+        super().__init__()
 
     @property
     def raw_file_names(self):
@@ -147,3 +153,25 @@ class ClusterDataset(Dataset):
     def get(self, idx):
         data = torch.load(osp.join(self.processed_dir, f'data_{idx}.pt'))
         return data
+
+    def __len__(self):
+        return len(self.processed_file_names)
+
+    def __getitem__(self, idx):
+        data = torch.load(osp.join(self.processed_dir, f'data_{idx}.pt'))
+        X = F.pad(data.x, pad=(0, 0, self.max_nodes - data.x.shape[0], 0))
+        Y = data.input
+        y = data.y_trans
+
+        if (3 in Y):
+            visited = np.split(Y, np.nonzero(input == 3)[0])[-1]
+        else:
+            visited = Y
+
+        opts = torch.tensor([self.converter.word2index[str(x)] for x in data.group if self.converter.word2index[str(x)] not in visited])
+        ys = torch.zeros((opts.shape[0], y.shape[0])).long()
+        ys[:, -1] = opts
+
+        ys = F.pad(ys, pad=(0, 0, self.max_nodes - ys.shape[0], 0))\
+
+        return X.float(), Y.long(), y.long(), ys.long()
