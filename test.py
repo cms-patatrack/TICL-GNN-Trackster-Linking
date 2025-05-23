@@ -93,8 +93,8 @@ def plot_loss(train_loss_history, val_loss_history, ax=None):
     epochs = len(train_loss_history)
     if ax is None:
         fig, ax = plt.subplots(1, 1)
-        fig.set_figheight(8)
-        fig.set_figwidth(6)
+        fig.set_figheight(6)
+        fig.set_figwidth(8)
 
     ax.plot(range(1, epochs+1), train_loss_history, label='train', linewidth=2)
     ax.plot(range(1, epochs+1), val_loss_history, label='val', linewidth=2)

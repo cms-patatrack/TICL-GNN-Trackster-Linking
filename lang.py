@@ -21,7 +21,7 @@ class Lang:
             numGroups = int(np.max(arr)+1)
         else:
             numGroups == 0
-        res = np.full(numGroups+arr.shape[0]+2, self.word2index["<PAD>"])
+        res = np.full(numGroups+arr.shape[0]+4, self.word2index["<PAD>"])
         res[0] = self.word2index["<SOS>"]
         j = 1
         groups = 0
@@ -29,7 +29,7 @@ class Lang:
 
         inGroup = 0
         for i in range(trackster.shape[0]):
-            if (arr[i] == root_group):
+            if (arr[trackster[i]] == root_group):
                 res[j] = self.word2index[str(trackster[i])]
                 inGroup += 1
                 groups += 1
@@ -37,15 +37,14 @@ class Lang:
 
         if (inGroup > 1):
             res[j] = self.word2index[";"]
-        j += 1
+            j += 1
 
         for group in range(numGroups):
             if (group == root_group):
                 continue
-
             inGroup = 0
             for i in range(trackster.shape[0]):
-                if (arr[i] == group):
+                if (arr[trackster[i]] == group):
                     res[j] = self.word2index[str(trackster[i])]
                     inGroup += 1
                     groups += 1
@@ -53,12 +52,10 @@ class Lang:
 
             if (inGroup > 1):
                 res[j] = self.word2index[";"]
-            j += 1
+                j += 1
         res[j] = self.word2index["<EOS>"]
-
-        if (numGroups > groups):
-            return res[:groups-numGroups]
-        return res
+        print(res)
+        return res[:j+2]
 
     def seq2y(self, arr):
         numTrackster = np.max(arr)+1
