@@ -17,4 +17,4 @@ class Loss(nn.Module):
                 # flat_mask = torch.flatten(mask)
                 loss = self.criterion(output, targets[:, i].contiguous().view(-1))
                 losses.append(loss)
-        return min(losses)
+        return np.mean(np.sort(np.array(losses))[:3])

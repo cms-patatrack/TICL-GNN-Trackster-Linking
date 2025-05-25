@@ -96,10 +96,10 @@ class Lang:
         return permutations
 
     def starting_seq(self, root, seq_length):
-        seq = np.pad(seq, (seq_length, 0), constant_values=self.word2index["<PAD>"])
+        seq = np.full(seq_length, self.word2index["<PAD>"])
         seq[-2] = self.word2index["<SOS>"]
         seq[-1] = self.word2index[str(root)]
-        return
+        return seq
 
 
 if __name__ == "__main__":

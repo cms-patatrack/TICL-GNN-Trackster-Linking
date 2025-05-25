@@ -18,7 +18,8 @@ class ClusterDataset(Dataset):
                          "sigmaPCA1", "sigmaPCA2", "sigmaPCA3", "num_LCs", "num_hits", "raw_energy", "raw_em_energy", "photon_prob", "electron_prob", "muon_prob",
                          "neutral_pion_prob", "charged_hadron_prob", "neutral_hadron_prob", "z_min", "z_max", "LC_density", "trackster_density", "time", "idx"]
     node_feature_dict = {k: v for v, k in enumerate(node_feature_keys)}
-    model_feature_keys = np.array([0,  2,  3,  4,  6,  7, 10, 14, 15, 16, 17, 18, 22, 24, 25, 26, 28])
+    model_feature_keys = np.array(["idx", "barycenter_eta", "barycenter_phi", "raw_energy"])
+    # model_feature_keys = np.array([0,  2,  3,  4,  6,  7, 10, 14, 15, 16, 17, 18, 22, 24, 25, 26, 28])
 
     def __init__(self, root, histo_path, transform=None, test=False, pre_transform=None, pre_filter=None):
         self.test = test
@@ -155,7 +156,7 @@ class ClusterDataset(Dataset):
         idx = 0
         for raw_path in self.raw_paths:
             print(raw_path)
-            run = torch.load(raw_path)
+            run = torch.load(raw_path, weights_only=False)
             nEvents = len(run)
 
             for event in range(nEvents):
@@ -237,5 +238,5 @@ class ClusterDataset(Dataset):
         return len(self.processed_file_names)
 
     def get(self, idx):
-        data = torch.load(osp.join(self.processed_dir, f'data_{idx}.pt'))
+        data = torch.load(osp.join(self.processed_dir, f'data_{idx}.pt'), weights_only=False)
         return data

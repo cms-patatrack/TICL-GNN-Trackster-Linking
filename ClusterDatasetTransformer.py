@@ -222,7 +222,7 @@ class ClusterDataset(Dataset):
                     idx += 1
 
     def get(self, idx):
-        data = torch.load(osp.join(self.processed_dir, f'data_{idx}.pt'))
+        data = torch.load(osp.join(self.processed_dir, f'data_{idx}.pt'), weights_only=False)
         return data
 
     def __len__(self):
@@ -235,6 +235,7 @@ class ClusterDataset(Dataset):
 
         if (self.filter):
             X = X[:, list(map(self.node_feature_dict.get, self.model_feature_keys))]
+            # X[:, 0] = (X[:, 0] - self.max_nodes/2)/self.max_nodes
 
         Y = data.input
 
