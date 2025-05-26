@@ -5,10 +5,10 @@ import awkward as ak
 
 class Lang:
     def __init__(self, num_nodes):
-        self.word2index = {"<PAD>": -4, "<SOS>": -3, "<EOS>": -2, ";": -1}
-        self.index2word = {-4: "<PAD>", -3: "<SOS>", -2: "<EOS>", -1: ";"}
+        self.word2index = {"<PAD>": 0, "<SOS>": 1, "<EOS>": 2, ";": 3}
+        self.index2word = {0: "<PAD>", 1: "<SOS>", 2: "<EOS>", 3: ";"}
         self.n_words = 4  # Count SOS, EOS and PAD
-        self.next_index = 0
+        self.next_index = 4
 
         for i in range(num_nodes):
             self.index2word[self.next_index] = str(i)
@@ -54,7 +54,6 @@ class Lang:
                 res[j] = self.word2index[";"]
                 j += 1
         res[j] = self.word2index["<EOS>"]
-        print(res)
         return res[:j+2]
 
     def seq2y(self, arr):

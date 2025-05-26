@@ -167,7 +167,7 @@ class ClusterDataset(Dataset):
                 if (root in visited):
                     continue
                 sample = orig_sample.clone()
-                sorted_graph = np.array(np.argsort(-sample.x[:, self.node_feature_dict["raw_energy"]]), dtype=int)
+                sorted_graph = np.array(list(range(sample.x.shape[0])), dtype=int)
 
                 if (sorted_graph.shape[0] > 1):
                     root_group = sorted_graph[sample.cluster[sorted_graph] == sample.cluster[root].item()]
@@ -229,7 +229,7 @@ class ClusterDataset(Dataset):
         return len(self.processed_file_names)
 
     def __getitem__(self, idx):
-        data = torch.load(osp.join(self.processed_dir, f'data_{idx}.pt'))
+        data = torch.load(osp.join(self.processed_dir, f'data_{idx}.pt'), weights_only=False)
         X = data.x
         X = F.pad(X, pad=(0, 0, self.max_nodes - data.x.shape[0], 0), value=self.converter.word2index["<PAD>"])
 

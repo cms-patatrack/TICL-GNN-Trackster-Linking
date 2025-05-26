@@ -133,14 +133,13 @@ class DecoderLayer(nn.Module):
 
 
 class Transformer(nn.Module):
-    def __init__(self, padding, tgt_vocab_size, d_model, num_heads, num_layers, d_ff, feature_count, max_nodes, max_seq_length, dropout):
+    def __init__(self, tgt_vocab_size, d_model, num_heads, num_layers, d_ff, feature_count, max_nodes, max_seq_length, dropout):
         super(Transformer, self).__init__()
 
         # self.encoder_embedding_layer = nn.TransformerEncoderLayer(d_model=feature_count, nhead=8)
         # self.encoder_embedding = nn.TransformerEncoder(self.encoder_embedding_layer, num_layers=6)
         self.encoder_embedding = nn.Linear(feature_count, d_model)
         self.decoder_embedding = nn.Embedding(tgt_vocab_size, d_model)
-        self.padding = padding
 
         self.tgt_positional_encoding = PositionalEncoding(d_model, max_seq_length)
         self.src_positional_encoding = PositionalEncoding(d_model, max_nodes)
@@ -160,9 +159,9 @@ class Transformer(nn.Module):
         return src_mask, tgt_mask
 
     def forward(self, src, tgt):
-        src_mask, tgt_mask = self.generate_mask(src, tgt-self.padding)
+        src_mask, tgt_mask = self.generate_mask(src, tgt)
         src_embedded = self.dropout(self.encoder_embedding(src))
-        tgt_embedded = self.dropout(self.tgt_positional_encoding(self.decoder_embedding(tgt-self.padding)))
+        tgt_embedded = self.dropout(self.tgt_positional_encoding(self.decoder_embedding(tgt)))
 
         enc_output = src_embedded
         for enc_layer in self.encoder_layers:

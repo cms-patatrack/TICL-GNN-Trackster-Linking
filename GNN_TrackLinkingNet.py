@@ -16,14 +16,12 @@ def weight_init(m):
             m.bias.data.fill_(0.)
 
 
-def prepare_network_input_data(X, edge_index, edge_features=None):
+def prepare_network_input_data(X, edge_index, edge_features):
     X = torch.nan_to_num(X, nan=0.0)
     X = X[:, ClusterDataset.model_feature_keys]
 
-    if edge_features != None:
-        edge_features = torch.nan_to_num(edge_features, nan=0.0)
-        return torch.unsqueeze(X, dim=0).float(), torch.unsqueeze(edge_index, dim=0).float(), torch.unsqueeze(edge_features, dim=0).float()
-    return torch.unsqueeze(X, dim=0).float(), torch.unsqueeze(edge_index, dim=0).float()
+    edge_features = torch.nan_to_num(edge_features, nan=0.0)
+    return torch.unsqueeze(X, dim=0).float(), torch.unsqueeze(edge_index, dim=0).float(), torch.unsqueeze(edge_features, dim=0).float()
 
 
 class EarlyStopping:
@@ -141,7 +139,11 @@ class GNN_TrackLinkingNet(nn.Module):
             nn.Sigmoid()
         )
 
-    def forward(self, X, edge_index, edge_features=None, return_emb=False, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
+    def forward(self, data, return_emb=False, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
+        if data.edge_index.shape[1] != data.edges_features.shape[0]:
+            return None
+
+        X, edge_index, edge_features = prepare_network_input_data(data.x, data.edge_index, data.edges_features)
         X = torch.squeeze(X, dim=0)
         N = X.shape[0]
 
@@ -150,21 +152,16 @@ class GNN_TrackLinkingNet(nn.Module):
         std = X.std(dim=0, unbiased=False) + epsilon
         X_norm = (X - X.mean(dim=0)) / std
 
-        if edge_features != None:
-            edge_features = torch.squeeze(edge_features, dim=0)
-            edge_features_norm = torch.zeros_like(edge_features)
-            epsilon = 10e-5 * torch.ones(edge_features.shape, device=device)
-            std = edge_features.std(dim=0, unbiased=False) + epsilon
-            edge_features_norm = (edge_features - edge_features.mean(dim=0)) / std
-            edge_features_NN = self.edge_inputnetwork(edge_features_norm)
+        edge_features = torch.squeeze(edge_features, dim=0)
+        edge_features_norm = torch.zeros_like(edge_features)
+        epsilon = 10e-5 * torch.ones(edge_features.shape, device=device)
+        std = edge_features.std(dim=0, unbiased=False) + epsilon
+        edge_features_norm = (edge_features - edge_features.mean(dim=0)) / std
+        edge_features_NN = self.edge_inputnetwork(edge_features_norm)
 
-            alpha_dir = self.attention_direct(edge_features_NN)
-            alpha_rev = self.attention_reverse(edge_features_NN)
-            alpha = torch.cat([alpha_dir, alpha_rev], dim=0).float()
-        else:
-            alpha = None
-            edge_features_NN = self.edge_inputnetwork(
-                torch.ones((N, self.edge_feature_dim), device=device))
+        alpha_dir = self.attention_direct(edge_features_NN)
+        alpha_rev = self.attention_reverse(edge_features_NN)
+        alpha = torch.cat([alpha_dir, alpha_rev], dim=0).float()
 
         edge_index = torch.squeeze(edge_index, dim=0).long()
         E = edge_index.shape[1]
@@ -180,10 +177,7 @@ class GNN_TrackLinkingNet(nn.Module):
         for graphconv in self.graphconvs:
             node_emb = graphconv(node_emb, ind_p1, ind_p2, alpha=alpha, device=device)
 
-        if edge_features != None:
-            edge_emb = torch.cat([node_emb[src], node_emb[dst], edge_features_NN, edge_features_norm], dim=-1)
-        else:
-            edge_emb = torch.cat([node_emb[src], node_emb[dst], edge_features_NN], dim=-1)
+        edge_emb = torch.cat([node_emb[src], node_emb[dst], edge_features_NN, edge_features_norm], dim=-1)
 
         pred = self.edgenetwork(edge_emb).squeeze(-1)
         if not return_emb:
