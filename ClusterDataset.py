@@ -196,23 +196,23 @@ class ClusterDataset(Dataset):
                 for i in range(len(edges[0, :])):
                     edge_indices[transp[i, 0], transp[i, 1]] = i
 
-                for root in range(nTracksters):
-                    tree = KDTree(run.vertices[event, root], leaf_size=2)
-                    num = len(run.vertices[event, root])
-                    for target in range(root, nTracksters):
-                        if (root != target):
-                            dist, _ = tree.query(
-                                run.vertices[event, target], k=num)
-                            edge_features[edge_indices[root, target], 2] = np.min(dist)
-                            edge_features[edge_indices[root, target], 3] = np.max(dist)
+                # for root in range(nTracksters):
+                #     tree = KDTree(run.vertices[event, root], leaf_size=2)
+                #     num = len(run.vertices[event, root])
+                #     for target in range(root, nTracksters):
+                #         if (root != target):
+                #             dist, _ = tree.query(
+                #                 run.vertices[event, target], k=num)
+                #             edge_features[edge_indices[root, target], 2] = np.min(dist)
+                #             edge_features[edge_indices[root, target], 3] = np.max(dist)
 
-                            edge_features[edge_indices[target, root], 2] = np.min(
-                                dist)
-                            edge_features[edge_indices[target, root], 3] = np.max(
-                                dist)
-                        else:
-                            edge_features[edge_indices[root, target], 2] = 0
-                            edge_features[edge_indices[root, target], 3] = 0
+                #             edge_features[edge_indices[target, root], 2] = np.min(
+                #                 dist)
+                #             edge_features[edge_indices[target, root], 3] = np.max(
+                #                 dist)
+                #         else:
+                #             edge_features[edge_indices[root, target], 2] = 0
+                #             edge_features[edge_indices[root, target], 3] = 0
 
                 y = np.zeros(edges.shape[1])
                 for i, e in enumerate(edges.T):

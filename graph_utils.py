@@ -147,4 +147,4 @@ def build_ticl_graph(NTrackster, trackster):
 
         allNodes["inner"].append(tNode.inner)
         allNodes["outer"].append(tNode.outer)
-        return ak.Record(allNodes)
+    return ak.Array(allNodes)
