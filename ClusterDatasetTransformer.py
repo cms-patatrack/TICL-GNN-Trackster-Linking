@@ -148,7 +148,7 @@ class ClusterDataset(Dataset):
                 component = np.array(component, dtype=int)
 
                 # Root node with max "raw_energy"
-                root = torch.argmax(sample.x[component, self.node_feature_dict["raw_energy"]]).item()
+                root = component[torch.argmax(sample.x[component, self.node_feature_dict["raw_energy"]]).item()].item()
                 root_cluster = sample.cluster[root].item()
                 sample_seq = converter.y2seq(root, component, np.array(sample.cluster))
 
@@ -179,7 +179,7 @@ class ClusterDataset(Dataset):
                             group = np.array([seq[-1]])
                     else:
                         cluster = cluster[cluster != root_cluster]
-                        if (seq[-1] == self.converter.word2index["<EOS>"]):
+                        if (cluster.shape[0] == 0 or seq[-1] == self.converter.word2index["<EOS>"]):
                             group = np.array([self.converter.word2index["<EOS>"]])
                         else:
                             root_cluster = cluster[0].item()
@@ -223,7 +223,9 @@ class ClusterDataset(Dataset):
 
         if (self.filter):
             X = X[:, list(map(self.node_feature_dict.get, self.model_feature_keys))]
-            # X[:, 0] = (X[:, 0] - self.max_nodes/2)/self.max_nodes
+            X[:, 0] = (X[:, 0] - self.max_nodes/2)/self.max_nodes
+            X[:, 1] = X[:, 1]/(2*np.pi)
+            X[:, 2] = X[:, 2]/(2*np.pi)
 
         Y = data["input"]
         y = data["y"]
