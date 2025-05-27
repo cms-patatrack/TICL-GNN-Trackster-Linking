@@ -48,12 +48,14 @@ class ClusterDataset(Dataset):
         self.converter = converter
         self.filter = filter
 
-        self.root = root
-        self.processed_dir = f"{root}/processed"
-        self.raw_dir = f"{root}/raw"
+        self.processed_dir = root
 
-        self._download()
         self._process()
+
+        data_dict, comp_dict = self._load()
+        self.data_dict = data_dict
+        self.comp_dict = comp_dict
+        self.count = len(self.data_dict)
 
         super().__init__()
 
@@ -87,7 +89,7 @@ class ClusterDataset(Dataset):
 
     @property
     def processed_file_names(self):
-        return glob(f"{self.processed_dir}/data_*.pt")
+        return glob(f"{self.processed_dir}/comp_*.pt")
 
     # use this to load the tree if some of file.keys() are duplicates ending with different numbers
     def load_branch_with_highest_cycle(self, file, branch_name):
@@ -112,19 +114,6 @@ class ClusterDataset(Dataset):
 
         return branch
 
-    def _download(self):
-        if files_exist(self.raw_paths):  # pragma: no cover
-            return
-
-        fs.makedirs(self.raw_dir, exist_ok=True)
-        files = glob(f"{self.path}/*.pt")
-        id = 0
-
-        for path in files:
-            file = torch.load(path, weights_only=False)
-            torch.save(file, osp.join(self.raw_dir, f'data_id_{id}.pt'))
-            id += 1
-
     def _process(self):
         if files_exist(self.processed_paths):  # pragma: no cover
             return
@@ -139,105 +128,106 @@ class ClusterDataset(Dataset):
     def process(self):
         converter = Lang(self.max_nodes)
         idx = 0
-        for raw_path in self.raw_paths:
-            print(raw_path)
-            orig_sample = torch.load(raw_path, weights_only=False)
+        event = 0
 
-            if (orig_sample == None):
+        files = glob(f"{self.path}/*.pt")
+        for path in files:
+            sample = torch.load(path, weights_only=False)
+
+            if (sample == None):
                 continue
 
-            if isinstance(orig_sample, str):
+            if isinstance(sample, str):
                 continue
 
             visited = []
-            components = find_connected_components(orig_sample.edge_index, orig_sample.x.shape[0])
-            cluster = torch.unique(orig_sample.cluster)
+            components = find_connected_components(sample.edge_index, sample.x.shape[0])
+            cluster = torch.unique(sample.cluster)
             cluster = cluster[cluster >= 0]
-            for component in components:
+            for comp_cnt, component in enumerate(components):
                 component = np.array(component, dtype=int)
 
                 # Root node with max "raw_energy"
-                root = torch.argmax(orig_sample.x[component, self.node_feature_dict["raw_energy"]]).item()
-                root_cluster = orig_sample.cluster[root].item()
+                root = torch.argmax(sample.x[component, self.node_feature_dict["raw_energy"]]).item()
+                root_cluster = sample.cluster[root].item()
+                sample_seq = converter.y2seq(root, component, np.array(sample.cluster))
+
+                data = {}
+                data["x"] = sample.x[component]
+                data["seq"] = sample_seq
+                data["root"] = root
+                data["name"] = f"{event}_{comp_cnt}"
+                data["inputs"] = {}
 
                 if (component.shape[0] > 1):
-                    root_group = component[orig_sample.cluster[component] == root_cluster]
+                    root_group = component[sample.cluster[component] == root_cluster]
                 else:
                     root_group = component
 
-                sample_seq = converter.y2seq(root, component, np.array(orig_sample.cluster))
-
                 for i in range(sample_seq.shape[0]-3):
-                    sample = orig_sample.clone()
+                    vals = {}
                     seq = self.converter.subseq(sample_seq, seq_length=self.input_length+1, index=i-self.input_length+2)
-                    sample.input = torch.from_numpy(seq[:-1])
-                    sample.y = torch.from_numpy(seq[1:])
+                    vals["input"] = torch.from_numpy(seq[:-1])
+                    vals["y"] = torch.from_numpy(seq[1:])
 
                     if (seq[-2] > self.converter.word2index[";"]):
-                        # new_root = int(self.converter.index2word[seq[-2]])
-                        # subgraph = np.append(self.build_subgraph(sample.edge_index, new_root, self.neighborhood), new_root)
-                        # subgraph = np.array(subgraph, dtype=int)
-
-                        # subgraph = np.setdiff1d(subgraph, visited)
                         visited.append(self.converter.index2word[seq[-2]])
-
-                        # if (subgraph.shape[0] > 1):
-                        # sample.group = subgraph[sample.cluster[subgraph] == sample.cluster[new_root].item()]
-                        # sample.group = np.setdiff1d(sample.group, visited)
                         group = np.setdiff1d(root_group, visited)
                         group = np.array(list(map(self.converter.word2index.get, group)))
 
                         if (group.shape[0] == 0):
-                            print("Group is null")
                             group = np.array([seq[-1]])
-                        # elif (subgraph.shape[0] == 1):
-                        #     sample.group = subgraph
-                        # else:
-                        #     sample.group = np.array([sample_seq[i+2]])
                     else:
-                        # subgraph = component
-                        print("in else")
                         cluster = cluster[cluster != root_cluster]
                         if (seq[-1] == self.converter.word2index["<EOS>"]):
-                            print("Stop")
                             group = np.array([self.converter.word2index["<EOS>"]])
                         else:
                             root_cluster = cluster[0].item()
-                            print(root_cluster)
                             root_group = component[sample.cluster[component] == root_cluster]
-                            print(root_group)
                             group = np.array(list(map(self.converter.word2index.get, root_group)))
 
-                    sample.group = torch.from_numpy(group)
-                    print(sample.y)
-                    print(sample.group)
-                    ys = torch.cat([torch.unsqueeze(sample.y, dim=0)] * sample.group.shape[0], dim=0).long()
-                    ys[:, -1] = sample.group
-                    sample.ys = ys
+                    group = torch.from_numpy(group)
+                    ys = torch.cat([torch.unsqueeze(vals["y"], dim=0)] * group.shape[0], dim=0).long()
+                    ys[:, -1] = group
+                    vals["options"] = ys
+                    vals["component"] = f"{event}_{comp_cnt}"
 
-                    sample.x = sample.x[component]
-                    torch.save(sample, osp.join(self.processed_dir, f'data_{idx}.pt'))
+                    data["inputs"][idx] = vals
                     idx += 1
+                torch.save(data, osp.join(self.processed_dir, f'comp_{event}_{comp_cnt}.pt'))
 
-    def get(self, idx):
-        data = torch.load(osp.join(self.processed_dir, f'data_{idx}.pt'), weights_only=False)
-        return data
+            event += 1
+
+    def _load(self):
+        data_dict = {}
+        comp_dict = {}
+
+        for paths in self.processed_paths:
+            data = torch.load(paths, weights_only=False)
+
+            for key, value in data["inputs"].items():
+                data_dict[key] = value
+
+            data.pop("inputs", None)
+            comp_dict[data["name"]] = data
+
+        return data_dict, comp_dict
 
     def __len__(self):
-        return len(self.processed_file_names)
+        return self.count
 
     def __getitem__(self, idx):
-        data = torch.load(osp.join(self.processed_dir, f'data_{idx}.pt'), weights_only=False)
-        X = data.x
-        X = F.pad(X, pad=(0, 0, self.max_nodes - data.x.shape[0], 0), value=self.converter.word2index["<PAD>"])
+        data = self.data_dict[idx]
+        X = self.comp_dict[data["component"]]["x"]
+        X = F.pad(X, pad=(0, 0, self.max_nodes - X.shape[0], 0), value=self.converter.word2index["<PAD>"])
 
         if (self.filter):
             X = X[:, list(map(self.node_feature_dict.get, self.model_feature_keys))]
             # X[:, 0] = (X[:, 0] - self.max_nodes/2)/self.max_nodes
 
-        Y = data.input
-        y = data.y
+        Y = data["input"]
+        y = data["y"]
 
-        ys = data.ys
+        ys = data["options"]
         ys = F.pad(ys, pad=(0, 0, self.max_nodes - ys.shape[0], 0), value=self.converter.word2index["<PAD>"])
         return X.float(), Y.long(), y.long(), ys.long()

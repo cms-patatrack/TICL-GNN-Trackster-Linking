@@ -142,7 +142,7 @@ class Transformer(nn.Module):
         self.decoder_embedding = nn.Embedding(tgt_vocab_size, d_model)
 
         self.tgt_positional_encoding = PositionalEncoding(d_model, max_seq_length)
-        self.src_positional_encoding = PositionalEncoding(d_model, max_nodes)
+        # self.src_positional_encoding = PositionalEncoding(d_model, max_nodes)
 
         self.encoder_layers = nn.ModuleList([EncoderLayer(d_model, num_heads, d_ff, dropout) for _ in range(num_layers)])
         self.decoder_layers = nn.ModuleList([DecoderLayer(d_model, num_heads, d_ff, dropout) for _ in range(num_layers)])
