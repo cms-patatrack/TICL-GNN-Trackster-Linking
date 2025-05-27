@@ -11,8 +11,8 @@ class Lang:
         self.next_index = 4
 
         for i in range(num_nodes):
-            self.index2word[self.next_index] = str(i)
-            self.word2index[str(i)] = self.next_index
+            self.index2word[self.next_index] = i
+            self.word2index[i] = self.next_index
             self.n_words += 1
             self.next_index += 1
 
@@ -30,7 +30,7 @@ class Lang:
         inGroup = 0
         for i in range(trackster.shape[0]):
             if (arr[trackster[i]] == root_group):
-                res[j] = self.word2index[str(trackster[i])]
+                res[j] = self.word2index[trackster[i]]
                 inGroup += 1
                 groups += 1
                 j += 1
@@ -45,7 +45,7 @@ class Lang:
             inGroup = 0
             for i in range(trackster.shape[0]):
                 if (arr[trackster[i]] == group):
-                    res[j] = self.word2index[str(trackster[i])]
+                    res[j] = self.word2index[trackster[i]]
                     inGroup += 1
                     groups += 1
                     j += 1
@@ -97,7 +97,7 @@ class Lang:
     def starting_seq(self, root, seq_length):
         seq = np.full(seq_length, self.word2index["<PAD>"])
         seq[-2] = self.word2index["<SOS>"]
-        seq[-1] = self.word2index[str(root)]
+        seq[-1] = self.word2index[root]
         return seq
 
 

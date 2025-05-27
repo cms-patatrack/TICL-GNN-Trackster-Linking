@@ -12,6 +12,7 @@ from torch_geometric.io import fs
 import torch.nn.functional as F
 
 from lang import Lang
+from graph_utils import find_connected_components
 
 from collections.abc import Sequence
 from typing import Callable
@@ -124,18 +125,6 @@ class ClusterDataset(Dataset):
             torch.save(file, osp.join(self.raw_dir, f'data_id_{id}.pt'))
             id += 1
 
-    def build_subgraph(self, graph, root, neighborhood=1):
-        neighbors = graph[1][graph[0] == root]
-
-        if (neighborhood == 0):
-            return neighbors
-        subgraph = np.copy(neighbors)
-
-        for n in neighbors:
-            subgraph = np.append(subgraph, self.build_subgraph(graph, n, neighborhood-1))
-
-        return np.unique(subgraph)
-
     def _process(self):
         if files_exist(self.processed_paths):  # pragma: no cover
             return
@@ -161,64 +150,73 @@ class ClusterDataset(Dataset):
                 continue
 
             visited = []
+            components = find_connected_components(orig_sample.edge_index, orig_sample.x.shape[0])
+            cluster = torch.unique(orig_sample.cluster)
+            cluster = cluster[cluster >= 0]
+            for component in components:
+                component = np.array(component, dtype=int)
 
-            for root in orig_sample.roots[np.argsort(-orig_sample.x[orig_sample.roots, self.node_feature_dict["raw_energy"]])]:
-                root = root.item()
-                if (root in visited):
-                    continue
-                sample = orig_sample.clone()
-                sorted_graph = np.array(list(range(sample.x.shape[0])), dtype=int)
+                # Root node with max "raw_energy"
+                root = torch.argmax(orig_sample.x[component, self.node_feature_dict["raw_energy"]]).item()
+                root_cluster = orig_sample.cluster[root].item()
 
-                if (sorted_graph.shape[0] > 1):
-                    root_group = sorted_graph[sample.cluster[sorted_graph] == sample.cluster[root].item()]
+                if (component.shape[0] > 1):
+                    root_group = component[orig_sample.cluster[component] == root_cluster]
                 else:
-                    root_group = sorted_graph
+                    root_group = component
 
-                sample_seq = converter.y2seq(root, sorted_graph, np.array(sample.cluster))
-                # length = sample_seq.shape[0]-1
+                sample_seq = converter.y2seq(root, component, np.array(orig_sample.cluster))
 
-                # if (length < self.input_length):
-                #     length += 1
+                for i in range(sample_seq.shape[0]-3):
+                    sample = orig_sample.clone()
+                    seq = self.converter.subseq(sample_seq, seq_length=self.input_length+1, index=i-self.input_length+2)
+                    sample.input = torch.from_numpy(seq[:-1])
+                    sample.y = torch.from_numpy(seq[1:])
 
-                for i in range(sample_seq.shape[0]-2):
-                    if files_exist([osp.join(self.processed_dir, f'data_{idx}.pt')]):
-                        print(f"{osp.join(self.processed_dir, f'data_{idx}.pt')} exists")
-                        idx += 1
-                        break
+                    if (seq[-2] > self.converter.word2index[";"]):
+                        # new_root = int(self.converter.index2word[seq[-2]])
+                        # subgraph = np.append(self.build_subgraph(sample.edge_index, new_root, self.neighborhood), new_root)
+                        # subgraph = np.array(subgraph, dtype=int)
 
-                    new_sample = sample.clone()
-                    seq = self.converter.subseq(sample_seq, seq_length=self.input_length, index=i-self.input_length+2)
-                    new_sample.input = torch.from_numpy(seq)
+                        # subgraph = np.setdiff1d(subgraph, visited)
+                        visited.append(self.converter.index2word[seq[-2]])
 
-                    if (seq[-1] > self.converter.word2index[";"]):
-                        new_root = int(self.converter.index2word[seq[-1]])
-                        subgraph = np.append(self.build_subgraph(new_sample.edge_index, new_root, self.neighborhood), new_root)
-                        subgraph = np.array(subgraph, dtype=int)
+                        # if (subgraph.shape[0] > 1):
+                        # sample.group = subgraph[sample.cluster[subgraph] == sample.cluster[new_root].item()]
+                        # sample.group = np.setdiff1d(sample.group, visited)
+                        group = np.setdiff1d(root_group, visited)
+                        group = np.array(list(map(self.converter.word2index.get, group)))
 
-                        subgraph = np.setdiff1d(subgraph, visited)
-                        visited.append(seq[-1])
-
-                        if (subgraph.shape[0] > 1):
-                            new_sample.group = subgraph[new_sample.cluster[subgraph] == new_sample.cluster[new_root].item()]
-                            new_sample.group = np.setdiff1d(new_sample.group, visited)
-
-                            if (new_sample.group.shape[0] == 0):
-                                new_sample.group = np.array([sample_seq[i+2]])
-                        elif (subgraph.shape[0] == 1):
-                            new_sample.group = subgraph
-                        else:
-                            new_sample.group = np.array([sample_seq[i+2]])
+                        if (group.shape[0] == 0):
+                            print("Group is null")
+                            group = np.array([seq[-1]])
+                        # elif (subgraph.shape[0] == 1):
+                        #     sample.group = subgraph
+                        # else:
+                        #     sample.group = np.array([sample_seq[i+2]])
                     else:
-                        subgraph = sorted_graph
-                        new_sample.group = root_group
+                        # subgraph = component
+                        print("in else")
+                        cluster = cluster[cluster != root_cluster]
+                        if (seq[-1] == self.converter.word2index["<EOS>"]):
+                            print("Stop")
+                            group = np.array([self.converter.word2index["<EOS>"]])
+                        else:
+                            root_cluster = cluster[0].item()
+                            print(root_cluster)
+                            root_group = component[sample.cluster[component] == root_cluster]
+                            print(root_group)
+                            group = np.array(list(map(self.converter.word2index.get, root_group)))
 
-                    new_sample.group = torch.from_numpy(new_sample.group)
-                    ys = torch.cat([torch.unsqueeze(torch.roll(new_sample.input, -1), dim=0)] * new_sample.group.shape[0], dim=0).long()
-                    ys[:, -1] = new_sample.group
-                    new_sample.y_trans = ys
+                    sample.group = torch.from_numpy(group)
+                    print(sample.y)
+                    print(sample.group)
+                    ys = torch.cat([torch.unsqueeze(sample.y, dim=0)] * sample.group.shape[0], dim=0).long()
+                    ys[:, -1] = sample.group
+                    sample.ys = ys
 
-                    new_sample.x = new_sample.x[subgraph]
-                    torch.save(new_sample, osp.join(self.processed_dir, f'data_{idx}.pt'))
+                    sample.x = sample.x[component]
+                    torch.save(sample, osp.join(self.processed_dir, f'data_{idx}.pt'))
                     idx += 1
 
     def get(self, idx):
@@ -238,7 +236,8 @@ class ClusterDataset(Dataset):
             # X[:, 0] = (X[:, 0] - self.max_nodes/2)/self.max_nodes
 
         Y = data.input
+        y = data.y
 
-        ys = data.y_trans
+        ys = data.ys
         ys = F.pad(ys, pad=(0, 0, self.max_nodes - ys.shape[0], 0), value=self.converter.word2index["<PAD>"])
-        return X.float(), Y.long(), ys.long()
+        return X.float(), Y.long(), y.long(), ys.long()

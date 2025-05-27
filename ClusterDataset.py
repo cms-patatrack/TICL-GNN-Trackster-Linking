@@ -112,18 +112,13 @@ class ClusterDataset(Dataset):
             data["trackster_density"] = ak.Array(
                 np.zeros_like(data.num_LCs)) + NTracksters / volume
 
-            data["photon_prob"] = alltracksters.arrays()[
-                "id_probabilities"][:, :, 0]
-            data["electron_prob"] = alltracksters.arrays()[
-                "id_probabilities"][:, :, 1]
-            data["muon_prob"] = alltracksters.arrays()[
-                "id_probabilities"][:, :, 2]
-            data["neutral_pion_prob"] = alltracksters.arrays()[
-                "id_probabilities"][:, :, 3]
-            data["charged_hadron_prob"] = alltracksters.arrays()[
-                "id_probabilities"][:, :, 4]
-            data["neutral_hadron_prob"] = alltracksters.arrays()[
-                "id_probabilities"][:, :, 5]
+            probabilities = alltracksters_array.id_probabilities
+            data["photon_prob"] = probabilities[:, :, 0]
+            data["electron_prob"] = probabilities[:, :, 1]
+            data["muon_prob"] = probabilities[:, :, 2]
+            data["neutral_pion_prob"] = probabilities[:, :, 3]
+            data["charged_hadron_prob"] = probabilities[:, :, 4]
+            data["neutral_hadron_prob"] = probabilities[:, :, 5]
 
             # TODO: Check if correct calc
             idx = allassociations_array.ticlTrackstersCLUE3DHigh_recoToSim_CP_score < 0.2

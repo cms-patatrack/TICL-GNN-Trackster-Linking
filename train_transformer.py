@@ -38,7 +38,7 @@ def test(model, converter, loader, epoch, loss_obj, device=torch.device('cuda' i
 
     with torch.set_grad_enabled(False):
         model.eval()
-        pred, y = [], []
+        # pred, y = [], []
         val_loss = 0
 
         for sample in tqdm(loader, desc=f"Validation Epoch {epoch}"):
@@ -48,12 +48,12 @@ def test(model, converter, loader, epoch, loss_obj, device=torch.device('cuda' i
 
             z = model(X, Y)
             predicted_index = z.argmax(-1)
-            predicted_number = int(converter.index2word[int(predicted_index[0, -1].item())])
+            predicted_number = converter.index2word[int(predicted_index[0, -1].item())]
 
-            pred.append(predicted_number)
-            y.append(ys[0, -1])
+            # pred.append(predicted_number)
+            # y.append(ys[0, -1])
             loss = loss_obj.forward(z.contiguous().view(-1, vocab_size), ys).item()
             val_loss += loss
 
         val_loss /= len(loader)
-    return val_loss, np.array(pred), np.array(y)
+    return val_loss

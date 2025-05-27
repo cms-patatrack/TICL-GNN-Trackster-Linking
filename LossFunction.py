@@ -11,7 +11,7 @@ class Loss(nn.Module):
 
     def forward(self, output, targets):
         # mask = targets[:, 0] != padding
-        loss = self.criterion(output[:, -1], targets[:, 0, -1].contiguous().view(-1))
+        loss = self.criterion(output, targets.contiguous().view(-1))
 
         # return loss[mask].sum() / mask.sum()
         return loss
