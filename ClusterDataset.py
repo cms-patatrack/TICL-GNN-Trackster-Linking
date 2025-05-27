@@ -12,6 +12,8 @@ from sklearn.neighbors import KDTree
 import torch
 from torch_geometric.data import Dataset, Data
 
+from graph_utils import build_ticl_graph
+
 
 class ClusterDataset(Dataset):
     node_feature_keys = ["barycenter_x", "barycenter_y", "barycenter_z", "barycenter_eta", "barycenter_phi", "eVector0_x", "eVector0_y", "eVector0_z", "EV1", "EV2", "EV3",
@@ -69,7 +71,18 @@ class ClusterDataset(Dataset):
             alltracksters = self.load_branch_with_highest_cycle(file, 'ticlDumper/ticlTrackstersCLUE3DHigh')
             allclusters = self.load_branch_with_highest_cycle(file, 'ticlDumper/clusters')
             allassociations = self.load_branch_with_highest_cycle(file, 'ticlDumper/associations')
-            allgraph = self.load_branch_with_highest_cycle(file, 'ticlDumper/TICLGraph')
+
+            alltracksters_array = alltracksters.arrays()
+            NTracksters = alltracksters.arrays().NTracksters
+
+            try:
+                allgraph = self.load_branch_with_highest_cycle(file, 'ticlDumper/TICLGraph')
+                allgraph_array = allgraph.arrays()
+            except:
+                allgraph = []
+                for i in range(len(NTracksters)):
+                    allgraph.append(build_ticl_graph(NTracksters[i], alltracksters_array[i]))
+                allgraph_array = ak.Array(allgraph)
 
             node_feature_keys_before = ["barycenter_x", "barycenter_y", "barycenter_z", "barycenter_eta", "barycenter_phi", "eVector0_x",
                                         "eVector0_y", "eVector0_z",  "EV1", "EV2", "EV3", "sigmaPCA1", "sigmaPCA2", "sigmaPCA3", "raw_energy", "raw_em_energy", "time"]
@@ -78,10 +91,7 @@ class ClusterDataset(Dataset):
             cluster_number_of_hits = allclusters.arrays().cluster_number_of_hits
             cluster_layer_id = allclusters.arrays().cluster_layer_id
             vertices_indexes = alltracksters.arrays().vertices_indexes
-            alltracksters_array = alltracksters.arrays()
             allassociations_array = allassociations.arrays()
-            allgraph_array = allgraph.arrays()
-            NTracksters = alltracksters.arrays().NTracksters
 
             num_LCs = ak.count(alltracksters_array.vertices_indexes, axis=2)
             data["num_LCs"] = num_LCs
