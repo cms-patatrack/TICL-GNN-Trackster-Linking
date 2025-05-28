@@ -1,9 +1,6 @@
 import os.path as osp
 from glob import glob
 
-import tqdm as tqdm
-from itertools import chain
-
 import uproot as uproot
 import awkward as ak
 import numpy as np

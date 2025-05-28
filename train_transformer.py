@@ -6,9 +6,7 @@ import torch
 from LossFunction import Loss
 
 
-def train(model, converter, optimizer, loader, epoch, loss_obj, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
-    vocab_size = converter.n_words
-
+def train(model, optimizer, loader, epoch, loss_obj, vocab_size, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
     epoch_loss = 0
     model.train()
     for sample in tqdm(loader, desc=f"Training Epoch {epoch}"):
@@ -33,8 +31,8 @@ def train(model, converter, optimizer, loader, epoch, loss_obj, device=torch.dev
     return float(epoch_loss)/len(loader)
 
 
-def test(model, converter, loader, epoch, loss_obj, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
-    vocab_size = converter.n_words
+def test(model, loader, epoch, loss_obj, vocab_size, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
+    # vocab_size = converter.n_words
 
     with torch.set_grad_enabled(False):
         model.eval()
@@ -47,8 +45,8 @@ def test(model, converter, loader, epoch, loss_obj, device=torch.device('cuda' i
             ys = sample[2].to(device)
 
             z = model(X, Y)
-            predicted_index = z.argmax(-1)
-            predicted_number = converter.index2word[int(predicted_index[0, -1].item())]
+            # predicted_index = z.argmax(-1)
+            # predicted_number = converter.index2word[int(predicted_index[0, -1].item())]
 
             # pred.append(predicted_number)
             # y.append(ys[0, -1])

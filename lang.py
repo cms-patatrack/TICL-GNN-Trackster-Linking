@@ -3,18 +3,32 @@ import itertools
 import awkward as ak
 
 
+# For a gapless initialization use num_nodes, otherwise provide trackster list
+# If Trackster list is provided, num_nodes will be ignored
 class Lang:
-    def __init__(self, num_nodes):
+    def __init__(self, num_nodes=0, trackster_list=None):
         self.word2index = {"<PAD>": 0, "<SOS>": 1, "<EOS>": 2, ";": 3}
         self.index2word = {0: "<PAD>", 1: "<SOS>", 2: "<EOS>", 3: ";"}
         self.n_words = 4  # Count SOS, EOS and PAD
         self.next_index = 4
 
-        for i in range(num_nodes):
-            self.index2word[self.next_index] = i
-            self.word2index[i] = self.next_index
-            self.n_words += 1
-            self.next_index += 1
+        if (trackster_list is not None):
+            for trackster in trackster_list:
+                self.index2word[self.next_index] = trackster
+                self.word2index[trackster] = self.next_index
+                self.n_words += 1
+                self.next_index += 1
+        elif (num_nodes > 0):
+            for i in range(num_nodes):
+                self.index2word[self.next_index] = i
+                self.word2index[i] = self.next_index
+                self.n_words += 1
+                self.next_index += 1
+
+    def getTracksterList(self):
+        keys = list(self.word2index.keys())
+        keys = keys[4:]
+        return np.array(keys, dtype=int)
 
     def y2seq(self, root, trackster, arr):
         if (arr.shape[0] > 0):
