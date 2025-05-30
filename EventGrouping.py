@@ -17,27 +17,13 @@ class EventGrouping(nn.Module):
     node_feature_dict = {k: v for v, k in enumerate(node_feature_keys)}
     model_feature_keys = np.array(["barycenter_eta", "barycenter_phi", "raw_energy"])
 
-    def __init__(self, converter, transformer, neighborhood=4, seq_length=60, max_nodes=66):
+    def __init__(self, transformer, seq_length=60, max_nodes=66):
         super(EventGrouping, self).__init__()
 
-        self.neighborhood = neighborhood
         self.seq_length = seq_length
         self.max_nodes = max_nodes
 
-        self.converter = converter
         self.transformer = transformer
-
-    def build_subgraph(self, graph, root, neighborhood=1):
-        neighbors = graph[1][graph[0] == root]
-
-        if (neighborhood == 0):
-            return neighbors
-        subgraph = np.copy(neighbors)
-
-        for n in neighbors:
-            subgraph = np.append(subgraph, self.build_subgraph(graph, n, neighborhood-1))
-
-        return np.unique(subgraph)
 
     def forward(self, data, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
         num_nodes = data["nTrackster"]
@@ -46,26 +32,27 @@ class EventGrouping(nn.Module):
         seqs = []
         step = 0
         sample_seq = converter.starting_seq(data["root"], self.seq_length).to(device)
-        print(sample_seq)
 
         X = data["x"].float()
         X = F.pad(X, pad=(0, 0, self.max_nodes - num_nodes, 0), value=converter.word2index["<PAD>"])
         X = X[:, list(map(self.node_feature_dict.get, self.model_feature_keys))]
 
-        predictions = self.transformer(torch.unsqueeze(X, dim=0), torch.unsqueeze(sample_seq, dim=0))
-        predicted_index = int(torch.argsort(predictions[0, -1, :num_nodes], dim=0)[0].item())
-        print(converter.index2word[predicted_index])
-        
-        while (predicted_index != converter.word2index["<EOS>"] and step < num_nodes):
-            sample_seq = torch.roll(sample_seq, -1, dims=0)
-            sample_seq[-1] = predicted_index
-
+        with torch.set_grad_enabled(False):
+            self.transformer.eval()
             predictions = self.transformer(torch.unsqueeze(X, dim=0), torch.unsqueeze(sample_seq, dim=0))
             predicted_index = int(torch.argsort(predictions[0, -1, :num_nodes], dim=0)[0].item())
-            print(converter.index2word[predicted_index])
-            step += 1
+            
+            while (predicted_index != converter.word2index["<EOS>"] and step < self.seq_length-3):
+                sample_seq = torch.roll(sample_seq, -1, dims=0)
+                sample_seq[-1] = predicted_index
 
-            seqs.append(sample_seq)
+                predictions = self.transformer(torch.unsqueeze(X, dim=0), torch.unsqueeze(sample_seq, dim=0))
+                predicted_index = int(torch.argsort(predictions[0, -1, :num_nodes], dim=0)[0].item())
+                step += 1
+
+        sample_seq = torch.roll(sample_seq, -1, dims=0)
+        sample_seq[-1] = predicted_index
+        seqs.append(sample_seq)
         return seqs
 
 

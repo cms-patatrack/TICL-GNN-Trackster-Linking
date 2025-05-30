@@ -14,6 +14,7 @@ class Lang:
         self.next_index = 4
 
         if (trackster_list is not None):
+            self.max_trackster = np.max(trackster_list)
             for trackster in trackster_list:
                 self.index2word[self.next_index] = trackster
                 self.word2index[trackster] = self.next_index
@@ -25,6 +26,8 @@ class Lang:
                 self.word2index[i] = self.next_index
                 self.n_words += 1
                 self.next_index += 1
+            
+            self.max_trackster = self.n_words - 4
 
     def getTracksterList(self):
         keys = list(self.word2index.keys())
@@ -71,19 +74,19 @@ class Lang:
         res[j] = self.word2index["<EOS>"]
         return res[:j+2]
 
-    def seq2y(self, arr):
-        numTrackster = np.max(arr)+1
+    def seq2y(self, arr, nodes=None, start_group=0):
+        if nodes:
+            numTrackster = nodes
+        else:
+            numTrackster = self.max_trackster + 1
         y = np.full(numTrackster, -1)
 
-        if (arr[0] != 1 and arr[-1] != 1):
-            print("not full sequence!")
-        else:
-            group = 0
-            for i in arr[1:-1]:
-                if (i == self.word2index[";"]):
-                    group += 1
-                    continue
-                y[i] = group
+        group = start_group
+        for i in arr:
+            if (i == self.word2index[";"]):
+                group += 1
+            elif (i > self.word2index[";"]):
+                y[self.index2word[i]] = group
         return y
 
     def subseq(self, seq, index=0, seq_length=-1):
