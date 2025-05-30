@@ -14,9 +14,9 @@ def train(model, optimizer, loader, epoch, loss_obj, vocab_size, device=torch.de
         optimizer.zero_grad()
 
         # move data to the device
-        X = sample[0].to(device)
-        Y = sample[1].to(device)
-        ys = sample[2].to(device)
+        X = sample[0]
+        Y = sample[1]
+        ys = sample[2]
 
         z = model(X, Y)
 
@@ -40,9 +40,9 @@ def test(model, loader, epoch, loss_obj, vocab_size, device=torch.device('cuda' 
         val_loss = 0
 
         for sample in tqdm(loader, desc=f"Validation Epoch {epoch}"):
-            X = sample[0].to(device)
-            Y = sample[1].to(device)
-            ys = sample[2].to(device)
+            X = sample[0]
+            Y = sample[1]
+            ys = sample[2]
 
             z = model(X, Y)
             # predicted_index = z.argmax(-1)

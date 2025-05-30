@@ -160,7 +160,7 @@ class ClusterDataset(Dataset):
                 sample_seq = converter.y2seq(root, component, np.array(sample.cluster))
 
                 data = {}
-                data["x"] = sample.x[component].to(device)
+                data["x"] = sample.x[component].float().to(device)
                 data["seq"] = sample_seq
                 data["root"] = root
                 data["name"] = f"{event}_{comp_cnt}"
@@ -224,20 +224,31 @@ class ClusterDataset(Dataset):
     def __len__(self):
         return self.count
 
+    def get(self, event):
+        files = glob(f"{self.component_dict_dir}/comp_{event}_*.pt")
+        if len(files) == 0:
+            return
+
+        components = []
+        for file in files:
+            comp = torch.load(file, weights_only=False)
+            components.append(comp)
+        return components
+
     def __getitem__(self, idx):
         vals = self.data_access[idx]
-        X = torch.load(osp.join(self.processed_dir, "components", f'comp_{vals["event"]}_{vals["component"]}.pt'), weights_only=True)
+        X = torch.load(osp.join(self.component_dir, f'comp_{vals["event"]}_{vals["component"]}.pt'), weights_only=True)
         X = F.pad(X, pad=(0, 0, self.max_nodes - X.shape[0], 0), value=self.dummy_converter.word2index["<PAD>"])
 
         if (self.filter):
             X = X[:, list(map(self.node_feature_dict.get, self.model_feature_keys))]
 
-        seq_data = torch.load(osp.join(self.processed_dir, "sequence", f'comp_{vals["event"]}_{vals["component"]}_{vals["step"]}.pt'), weights_only=True)
+        seq_data = torch.load(osp.join(self.sequence_dir, f'comp_{vals["event"]}_{vals["component"]}_{vals["step"]}.pt'), weights_only=True)
         Y = seq_data["input"]
         y = seq_data["output"]
 
         if (self.output_group):
-            ys = torch.load(osp.join(self.processed_dir, "output_group", f'comp_{vals["event"]}_{vals["component"]}_{vals["step"]}.pt'), weights_only=True)
+            ys = torch.load(osp.join(sself.output_group_dir, f'comp_{vals["event"]}_{vals["component"]}_{vals["step"]}.pt'), weights_only=True)
             ys = F.pad(ys, pad=(0, 0, self.max_nodes - ys.shape[0], 0), value=self.dummy_converter.word2index["<PAD>"])
             return X, Y, y, ys
 

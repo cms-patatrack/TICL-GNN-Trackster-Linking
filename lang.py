@@ -1,3 +1,4 @@
+import torch
 import numpy as np
 import itertools
 import awkward as ak
@@ -109,10 +110,10 @@ class Lang:
         return permutations
 
     def starting_seq(self, root, seq_length):
-        seq = np.full(seq_length, self.word2index["<PAD>"])
+        seq = torch.full((seq_length, ), self.word2index["<PAD>"])
         seq[-2] = self.word2index["<SOS>"]
         seq[-1] = self.word2index[root]
-        return seq
+        return seq.long()
 
 
 if __name__ == "__main__":
