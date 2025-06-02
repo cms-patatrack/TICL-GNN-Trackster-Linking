@@ -13,7 +13,6 @@ import seaborn as sn
 import mplhep as hep
 
 from GNN_TrackLinkingNet import prepare_network_input_data, FocalLoss
-from data_statistics import classification_threshold_scores
 
 
 plt.style.use(hep.style.CMS)

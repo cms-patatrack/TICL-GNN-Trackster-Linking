@@ -4,7 +4,10 @@ from glob import glob
 import uproot as uproot
 import awkward as ak
 import numpy as np
+
 from sklearn.neighbors import KDTree
+from sklearn.preprocessing import MaxAbsScaler
+import joblib
 
 import torch
 from torch_geometric.data import Dataset, Data
@@ -23,6 +26,7 @@ class ClusterDataset(Dataset):
     def __init__(self, root, histo_path, transform=None, test=False, pre_transform=None, pre_filter=None):
         self.test = test
         self.histo_path = histo_path
+        self.root_dir = root
         super().__init__(root, transform, pre_transform, pre_filter)
 
     @property
@@ -156,6 +160,7 @@ class ClusterDataset(Dataset):
 
     def process(self):
         idx = 0
+        self.scaler = MaxAbsScaler()
         for raw_path in self.raw_paths:
             print(raw_path)
             run = torch.load(raw_path, weights_only=False)
@@ -169,6 +174,8 @@ class ClusterDataset(Dataset):
                 features = np.zeros((nTracksters, len(self.node_feature_keys)))
                 for i, key in enumerate(self.node_feature_keys):
                     features[:, i] = ak.to_numpy(run[event][key])
+
+                self.scaler.partial_fit(X)
 
                 # Create base graph from geometrical graph
                 edges = [[], []]
@@ -235,6 +242,9 @@ class ClusterDataset(Dataset):
                 torch.save(data, osp.join(
                     self.processed_dir, f'data_{idx}.pt'))
                 idx += 1
+
+        if (not self.test):
+            joblib.dump(scaler, osp.join(self.root_dir, "scaler.joblib"))
 
     def len(self):
         return len(self.processed_file_names)

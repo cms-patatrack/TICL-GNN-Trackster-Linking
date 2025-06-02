@@ -3,6 +3,7 @@ import torch
 
 import numpy as np
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 from sklearn.metrics import confusion_matrix, f1_score
 
@@ -66,3 +67,21 @@ def print_dataset_statistics(trainDataset, epsilon=0.1):
     print(f"Mean Number of positive edges: {num_pos/num_events}")
     print(f"Number of negative edges: {num_neg}")
     print(f"Mean Number of negative edges: {num_neg/num_events}")
+
+
+def plot_data_distribution(X, keys):
+    scols = int(np.ceil(len(keys)/2))
+    srows = 2
+    fig, axes = plt.subplots(scols, srows, figsize=(20, 35), constrained_layout=True)
+
+    for i, key in enumerate(keys):
+        ax_col = int(i%scols)
+        ax_row = int(i/scols)
+        
+        sns.histplot(X[key], ax=axes[ax_col, ax_row], kde=True, stat="density", linewidth=0, bins=15)
+        axes[ax_col, ax_row].set_title('Frequency distribution '+ key, fontsize=18)
+        axes[ax_col, ax_row].set_xlabel(key, fontsize=15)
+        axes[ax_col, ax_row].set_ylabel('Count', fontsize=15)
+        
+    fig.tight_layout()
+    plt.show()

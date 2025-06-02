@@ -41,10 +41,12 @@ class ClusterDataset(Dataset):
     # model_feature_keys = np.array([0,  2,  3,  4,  6,  7, 10, 14, 15, 16, 17, 18, 22, 24, 25, 26, 28, 29])
     model_feature_keys = np.array(["barycenter_eta", "barycenter_phi", "raw_energy"])
 
-    def __init__(self, root, data_path, input_length, filter=True, output_group=False, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
+    def __init__(self, root, data_path, input_length, filter=True, scale=None, output_group=False, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
         self.path = data_path
         self.input_length = input_length
         self.filter = filter
+        self.scale = scale
+
         self.output_group = output_group
         self.dummy_converter = Lang(0)
 
@@ -238,7 +240,12 @@ class ClusterDataset(Dataset):
     def __getitem__(self, idx):
         vals = self.data_access[idx]
         X = torch.load(osp.join(self.component_dir, f'comp_{vals["event"]}_{vals["component"]}.pt'), weights_only=True)
+
+        if(self.scale is not None):
+            X /= self.scale
+
         X = F.pad(X, pad=(0, 0, self.max_nodes - X.shape[0], 0), value=self.dummy_converter.word2index["<PAD>"])
+        
 
         if (self.filter):
             X = X[:, list(map(self.node_feature_dict.get, self.model_feature_keys))]
@@ -248,7 +255,7 @@ class ClusterDataset(Dataset):
         y = seq_data["output"]
 
         if (self.output_group):
-            ys = torch.load(osp.join(sself.output_group_dir, f'comp_{vals["event"]}_{vals["component"]}_{vals["step"]}.pt'), weights_only=True)
+            ys = torch.load(osp.join(self.output_group_dir, f'comp_{vals["event"]}_{vals["component"]}_{vals["step"]}.pt'), weights_only=True)
             ys = F.pad(ys, pad=(0, 0, self.max_nodes - ys.shape[0], 0), value=self.dummy_converter.word2index["<PAD>"])
             return X, Y, y, ys
 
