@@ -34,6 +34,7 @@ class Lang:
         keys = keys[4:]
         return np.array(keys, dtype=int)
 
+
     def y2seq(self, root, trackster, arr):
         if (arr.shape[0] > 0):
             numGroups = int(np.max(arr)+1)
@@ -89,6 +90,7 @@ class Lang:
                 y[self.index2word[i]] = group
         return y
 
+    # Remove padding:  add in dataset preparation
     def subseq(self, seq, index=0, seq_length=-1):
         if (index <= 0):
             seq = np.pad(seq, (np.abs(index), 0), constant_values=self.word2index["<PAD>"])
@@ -114,8 +116,8 @@ class Lang:
 
     def starting_seq(self, root, seq_length):
         seq = torch.full((seq_length, ), self.word2index["<PAD>"])
-        seq[-2] = self.word2index["<SOS>"]
-        seq[-1] = self.word2index[root]
+        seq[0] = self.word2index["<SOS>"]
+        seq[1] = self.word2index[root]
         return seq.long()
 
 

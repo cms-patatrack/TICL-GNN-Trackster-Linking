@@ -136,9 +136,14 @@ class Transformer(nn.Module):
     def __init__(self, tgt_vocab_size, d_model, num_heads, num_layers, d_ff, feature_count, max_nodes, max_seq_length, dropout):
         super(Transformer, self).__init__()
 
-        # self.encoder_embedding_layer = nn.TransformerEncoderLayer(d_model=feature_count, nhead=8)
-        # self.encoder_embedding = nn.TransformerEncoder(self.encoder_embedding_layer, num_layers=6)
-        self.encoder_embedding = nn.Linear(feature_count, d_model)
+        # self.encoder_embedding = nn.Linear(feature_count, d_model)
+        self.encoder_embedding = nn.Sequential(
+                nn.Linear(feature_count, d_model),
+                nn.LeakyReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(d_model, d_model),
+                nn.LeakyReLU()
+            )
         self.decoder_embedding = nn.Embedding(tgt_vocab_size, d_model)
 
         self.tgt_positional_encoding = PositionalEncoding(d_model, max_seq_length)
@@ -151,7 +156,7 @@ class Transformer(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def generate_mask(self, src, tgt):
-        src_mask = (src != 0).unsqueeze(1).unsqueeze(2)
+        src_mask = (torch.sum(src, dim=2) != 0).unsqueeze(1).unsqueeze(2)
         tgt_mask = (tgt != 0).unsqueeze(1).unsqueeze(3)
         seq_length = tgt.size(1)
         nopeak_mask = (1 - torch.triu(torch.ones(1, seq_length, seq_length), diagonal=1)).bool().to(src.device)
@@ -160,16 +165,16 @@ class Transformer(nn.Module):
 
     def forward(self, src, tgt):
         src_mask, tgt_mask = self.generate_mask(src, tgt)
-        src_embedded = self.src_positional_encoding(self.encoder_embedding(src))
+        src_embedded = self.encoder_embedding(src)
         tgt_embedded = self.dropout(self.tgt_positional_encoding(self.decoder_embedding(tgt)))
 
         enc_output = src_embedded
-        for enc_layer in self.encoder_layers:
-            enc_output = enc_layer(enc_output)
+        # for enc_layer in self.encoder_layers:
+        #     enc_output = enc_layer(enc_output, src_mask)
 
         dec_output = tgt_embedded
         for dec_layer in self.decoder_layers:
-            dec_output = dec_layer(dec_output, enc_output, tgt_mask)
+            dec_output = dec_layer(dec_output, enc_output, tgt_mask, src_mask)
 
         output = self.fc(dec_output)
         return output

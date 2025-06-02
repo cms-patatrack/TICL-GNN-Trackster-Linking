@@ -252,7 +252,14 @@ class ClusterDataset(Dataset):
 
         seq_data = torch.load(osp.join(self.sequence_dir, f'comp_{vals["event"]}_{vals["component"]}_{vals["step"]}.pt'), weights_only=True)
         Y = seq_data["input"]
+
+        # Remove masking after next data building
+        mask = Y > 0
+        seq_length = Y[mask].shape[0]
+        Y = F.pad(Y[mask], pad=(0, self.input_length - seq_length), value=self.dummy_converter.word2index["<PAD>"])
+
         y = seq_data["output"]
+        y = F.pad(y[mask], pad=(0, self.input_length - seq_length), value=self.dummy_converter.word2index["<PAD>"])
 
         if (self.output_group):
             ys = torch.load(osp.join(self.output_group_dir, f'comp_{vals["event"]}_{vals["component"]}_{vals["step"]}.pt'), weights_only=True)

@@ -35,8 +35,12 @@ def plot_loss(train_loss_history, val_loss_history, ax=None, n=8):
         fig.set_figheight(6)
         fig.set_figwidth(8)
 
-    ax.plot(range(1, epochs+1), moving_average(train_loss_history, n=n), label='train', linewidth=2)
-    ax.plot(range(1, epochs+1), moving_average(val_loss_history), label='val', linewidth=2)
+    if (n > 0):
+        ax.plot(range(1, epochs+1), moving_average(train_loss_history, n=n), label='train', linewidth=2)
+        ax.plot(range(1, epochs+1), moving_average(val_loss_history, n=n), label='val', linewidth=2)
+    else:
+        ax.plot(range(1, epochs+1), train_loss_history, label='train', linewidth=2)
+        ax.plot(range(1, epochs+1), val_loss_history, label='val', linewidth=2)
     ax.set_ylabel("Loss", fontsize=14)
     ax.set_xlabel("Epochs", fontsize=14)
     ax.set_title("Training and Validation Loss", fontsize=14)

@@ -4,10 +4,12 @@ import numpy as np
 
 
 class Loss(nn.Module):
-    def __init__(self, converter):
+    def __init__(self, converter, vocab_size, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
         super(Loss, self).__init__()
-        self.criterion = nn.CrossEntropyLoss(ignore_index=converter.word2index["<PAD>"])
-        self.converter = converter
+        
+        weights = torch.ones(vocab_size)
+        weights[converter.word2index[";"]] = 0.5
+        self.criterion = nn.CrossEntropyLoss(label_smoothing=0.1, weight=weights.to(device), ignore_index=converter.word2index["<PAD>"])
 
     def forward(self, output, targets):
         # mask = targets[:, 0] != padding
