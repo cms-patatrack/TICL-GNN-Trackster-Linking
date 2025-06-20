@@ -4,6 +4,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from torch.utils.tensorboard import SummaryWriter
+
 from EdgeConvBlock import EdgeConvBlock
 from GNNDataset import GNNDataset
 
@@ -17,7 +19,7 @@ def weight_init(m):
 
 def prepare_network_input_data(X, edge_index, edge_features):
     X = torch.nan_to_num(X, nan=0.0)
-    X = X[:, GNNDataset.model_feature_keys]
+    X = X[:, list(map(GNNDataset.node_feature_dict.get, GNNDataset.model_feature_keys))]
 
     edge_features = torch.nan_to_num(edge_features, nan=0.0)
     return torch.unsqueeze(X, dim=0).float(), torch.unsqueeze(edge_index, dim=0).float(), torch.unsqueeze(edge_features, dim=0).float()
@@ -80,7 +82,7 @@ class GNN_TrackLinkingNet(nn.Module):
                  edge_feature_dim=12, edge_hidden_dim=16, weighted_aggr=True):
         super(GNN_TrackLinkingNet, self).__init__()
 
-        self.writer = SummaryWriter(f"tensorboard_runs/gnn_model_no_geometric")
+        self.writer = SummaryWriter(f"tensorboard_runs/gnn_model")
 
         self.niters = niters
         self.input_dim = input_dim
