@@ -96,7 +96,8 @@ class ClusterDataset(Dataset):
 
     def __getitem__(self, idx):
         vals = self.data_access[idx]
-        X = torch.load(osp.join(self.component_dir, f'comp_{vals["event"]}_{vals["component"]}.pt'), weights_only=True)
+        component = torch.load(osp.join(self.component_dict_dir, f'comp_{vals["event"]}_{vals["component"]}.pt'), weights_only=False)
+        X = component["x"]
 
         if (self.scale is not None):
             X /= self.scale
@@ -106,7 +107,7 @@ class ClusterDataset(Dataset):
         if (self.filter):
             X = X[:, list(map(self.node_feature_dict.get, self.model_feature_keys))]
 
-        seq_data = torch.load(osp.join(self.sequence_dir, f'comp_{vals["event"]}_{vals["component"]}_{vals["step"]}.pt'), weights_only=True)
+        seq_data = component["inputs"][vals["step"]]
         Y = seq_data["input"]
 
         # Remove masking after next data building
@@ -114,7 +115,7 @@ class ClusterDataset(Dataset):
         seq_length = Y[mask].shape[0]
         Y = F.pad(Y[mask], pad=(0, self.input_length - seq_length), value=self.dummy_converter.word2index["<PAD>"])
 
-        y = seq_data["output"]
+        y = seq_data["y"]
         y = F.pad(y[mask], pad=(0, self.input_length - seq_length), value=self.dummy_converter.word2index["<PAD>"])
 
         if (self.output_group):

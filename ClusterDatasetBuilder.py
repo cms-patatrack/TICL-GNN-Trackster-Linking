@@ -8,7 +8,6 @@ import torch
 
 from tqdm import tqdm
 
-from GNNDataset import GNNDataset
 from ClusterDataset import ClusterDataset
 from lang import Lang
 
@@ -17,8 +16,8 @@ from graph_utils import find_connected_components
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 
-def process_event(path, event_nr, input_length, component_dir, sequence_dir, component_dict_dir, output_group_dir, output_group, raw_energy, device=torch.device(
-        'cuda' if torch.cuda.is_available() else 'cpu')):
+def process_event(path, event_nr, input_length, component_dir, sequence_dir, component_dict_dir, output_group_dir, output_group, store_component_dict, raw_energy,
+                  device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
     data_access = []
     max_nodes = 0
 
@@ -47,8 +46,6 @@ def process_event(path, event_nr, input_length, component_dir, sequence_dir, com
 
         converter = Lang(trackster_list=component)
 
-        # Root node with max "raw_energy"
-
         data = {}
         data["x"] = sample.x[component].float().to(device)
         data["name"] = f"{event_nr}_{comp_cnt}"
@@ -58,11 +55,13 @@ def process_event(path, event_nr, input_length, component_dir, sequence_dir, com
         data["seqs"] = []
         data["roots"] = []
 
-        torch.save(sample.x[component].float().to(device), osp.join(component_dir, f'comp_{event_nr}_{comp_cnt}.pt'))
+        # torch.save(sample.x[component].float().to(device), osp.join(component_dir, f'comp_{event_nr}_{comp_cnt}.pt'))
 
         while component.shape[0] > 0:
+            # Root node with max "raw_energy"
             root = component[torch.argmax(sample.x[component, raw_energy]).item()].item()
             sample_seq, root_group = converter.y2seq(root, component, np.array(sample.cluster))
+
             data["seqs"].append(sample_seq)
             data["roots"].append(root)
 
@@ -72,7 +71,7 @@ def process_event(path, event_nr, input_length, component_dir, sequence_dir, com
                 vals["input"] = seq[:-1]
                 vals["y"] = seq[1:]
 
-                torch.save({"input": seq[:-1], "output": seq[1:]}, osp.join(sequence_dir, f'comp_{event_nr}_{comp_cnt}_{i}.pt'))
+                # torch.save({"input": seq[:-1], "output": seq[1:]}, osp.join(sequence_dir, f'comp_{event_nr}_{comp_cnt}_{i}.pt'))
                 if (output_group and output_group_dir is not None):
                     last_word = seq[-2].item()
                     visited.append(converter.index2word[last_word])
@@ -88,22 +87,23 @@ def process_event(path, event_nr, input_length, component_dir, sequence_dir, com
 
                     torch.save(vals["options"], osp.join(output_group_dir, f'comp_{event_nr}_{comp_cnt}_{i}.pt'))
 
-                data["inputs"][i] = vals
                 data_access.append({"event": event_nr, "component": comp_cnt, "step": i})
+
+                data["inputs"][i] = vals
 
             component = np.setdiff1d(component, root_group)
 
-        data["nInputs"] = i
         torch.save(data, osp.join(component_dict_dir, f'comp_{event_nr}_{comp_cnt}.pt'))
     return data_access, max_nodes
 
 
 class ClusterDatasetBuilder:
 
-    def __init__(self, root, data_path, input_length, output_group=False):
+    def __init__(self, root, data_path, input_length, output_group=False, store_component_dict=False):
 
         self.path = data_path
         self.output_group = output_group
+        self.store_component_dict = store_component_dict
 
         self.processed_dir = root
         self.component_dir = osp.join(self.processed_dir, "component")
@@ -113,7 +113,7 @@ class ClusterDatasetBuilder:
 
         self.input_length = input_length
 
-    def metadataExists(self):
+    def metadata_exists(self):
         return osp.isfile(osp.join(self.processed_dir, "metadata.pt"))
 
     def generate(self, num_workers=64, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
@@ -121,10 +121,10 @@ class ClusterDatasetBuilder:
 
         os.makedirs(self.processed_dir, exist_ok=True)
         os.makedirs(self.component_dir, exist_ok=True)
-        os.makedirs(self.component_dict_dir, exist_ok=True)
         os.makedirs(self.sequence_dir, exist_ok=True)
+        os.makedirs(self.component_dict_dir, exist_ok=True)
 
-        if (self.output_group):
+        if self.output_group:
             os.makedirs(self.output_group_dir, exist_ok=True)
 
         files = glob(f"{self.path}/data_*.pt")
@@ -133,8 +133,11 @@ class ClusterDatasetBuilder:
 
         with tqdm(total=len(files)) as pbar:
             with ProcessPoolExecutor(max_workers=num_workers) as executor:
-                futures = [executor.submit(process_event, file, event, self.input_length, self.component_dir, self.sequence_dir, self.component_dict_dir,
-                                           self.output_group_dir, self.output_group, ClusterDataset.node_feature_dict["raw_energy"], device) for event, file in enumerate(files)]
+                futures = [
+                    executor.submit(
+                        process_event, file, event, self.input_length, self.component_dir, self.sequence_dir, self.component_dict_dir, self.output_group_dir, self.output_group,
+                        self.store_component_dict, ClusterDataset.node_feature_dict["raw_energy"],
+                        device) for event, file in enumerate(files)]
 
                 for future in as_completed(futures):
                     metadata, node_nums = future.result()
@@ -153,29 +156,3 @@ class ClusterDatasetBuilder:
         torch.save(metadata, osp.join(self.processed_dir, f'metadata.pt'))
 
         print('Done!', file=sys.stderr)
-
-
-if __name__ == "__main__":
-    input_length = 60
-    max_seq_length = 60
-    batch_size = 64
-    max_nodes = 66
-
-    converter = Lang(max_nodes)
-    vocab_size = converter.n_words
-
-    # Load the dataset
-    hist_folder = "/eos/user/c/czeh/histo_10pion0PU/"
-    data_folder_training = "/eos/user/c/czeh/graph_data"
-    data_folder_test = "/eos/user/c/czeh/graph_data_test"
-
-    dataset_training = GNNDataset(data_folder_training, hist_folder)
-    dataset_test = GNNDataset(data_folder_test, hist_folder, test=True)
-
-    data_folder_training = "/eos/user/c/czeh/graph_data/processed"
-    store_folder_training = "/eos/user/c/czeh/graph_data_trans"
-    data_folder_test = "/eos/user/c/czeh/graph_data_test/processed"
-    store_folder_test = "/eos/user/c/czeh/graph_data_trans_test"
-
-    dataset_training = ClusterDataset(converter, store_folder_training, data_folder_training, max_nodes=max_nodes, input_length=input_length)
-    dataset_test = ClusterDataset(converter, store_folder_test, data_folder_test, max_nodes=max_nodes, input_length=input_length)
