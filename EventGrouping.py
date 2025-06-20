@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 import numpy as np
 
-from ClusterDataset import ClusterDataset
+from GNNDataset import GNNDataset
 from Transformer import Transformer
 from lang import Lang
 
@@ -36,7 +36,7 @@ class EventGrouping(nn.Module):
         X = data["x"].float()
         X = F.pad(X, pad=(0, 0, self.max_nodes - num_nodes, 0), value=converter.word2index["<PAD>"])
 
-        if(self.scale is not None):
+        if (self.scale is not None):
             X /= self.scale
 
         X = X[:, list(map(self.node_feature_dict.get, self.model_feature_keys))]
@@ -45,7 +45,7 @@ class EventGrouping(nn.Module):
             self.transformer.eval()
             predictions = self.transformer(torch.unsqueeze(X, dim=0), torch.unsqueeze(sample_seq, dim=0))
             predicted_index = int(torch.argsort(-predictions[0, -1, :num_nodes], dim=0)[0].item())
-            
+
             while (predicted_index != converter.word2index["<EOS>"] and step < self.seq_length-1):
                 sample_seq[step] = predicted_index
 
@@ -66,7 +66,7 @@ if __name__ == "__main__":
     input_length = 60
     converter = Lang(max_nodes)
     vocab_size = converter.n_words
-    dataset = ClusterDataset(store_folder_training, data_folder_test, test=True)
+    dataset = GNNDataset(store_folder_training, data_folder_test, test=True)
 
     d_model = 16
     num_heads = 2

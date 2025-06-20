@@ -1,11 +1,10 @@
 import torch
 import numpy as np
-import itertools
-import awkward as ak
-
 
 # For a gapless initialization use num_nodes, otherwise provide trackster list
 # If Trackster list is provided, num_nodes will be ignored
+
+
 class Lang:
     def __init__(self, num_nodes=0, trackster_list=None):
         self.word2index = {"<PAD>": 0, "<SOS>": 1, "<EOS>": 2, ";": 3}
@@ -26,7 +25,7 @@ class Lang:
                 self.word2index[i] = self.next_index
                 self.n_words += 1
                 self.next_index += 1
-            
+
             self.max_trackster = self.n_words - 4
 
     def getTracksterList(self):
@@ -34,60 +33,30 @@ class Lang:
         keys = keys[4:]
         return np.array(keys, dtype=int)
 
-
     def y2seq(self, root, trackster, arr):
-        if (arr.shape[0] > 0):
-            numGroups = int(np.max(arr)+1)
-        else:
-            numGroups == 0
-        res = np.full(numGroups+arr.shape[0]+4, self.word2index["<PAD>"])
-        res[0] = self.word2index["<SOS>"]
-        j = 1
-        groups = 0
         root_group = arr[root]
+        group = np.where(arr == root_group)[0]
+        group = np.intersect1d(group, trackster)
 
-        inGroup = 0
-        for i in range(trackster.shape[0]):
-            if (arr[trackster[i]] == root_group):
-                res[j] = self.word2index[trackster[i]]
-                inGroup += 1
-                groups += 1
-                j += 1
+        res = np.full(group.shape[0]+2, self.word2index["<PAD>"])
+        res[0] = self.word2index["<SOS>"]
+        res[1] = self.word2index[root]
+        res[-1] = self.word2index["<EOS>"]
 
-        if (inGroup > 1):
-            res[j] = self.word2index[";"]
-            j += 1
+        res[2:-1] = np.array(list(map(self.word2index.get, group[group != root])))
+        return res, group
 
-        for group in range(numGroups):
-            if (group == root_group):
-                continue
-            inGroup = 0
-            for i in range(trackster.shape[0]):
-                if (arr[trackster[i]] == group):
-                    res[j] = self.word2index[trackster[i]]
-                    inGroup += 1
-                    groups += 1
-                    j += 1
-
-            if (inGroup > 1):
-                res[j] = self.word2index[";"]
-                j += 1
-        res[j] = self.word2index["<EOS>"]
-        return res[:j+2]
-
-    def seq2y(self, arr, nodes=None, start_group=0):
-        if nodes:
+    def seq2y(self, arrs, nodes=None, start_group=0):
+        if nodes is not None:
             numTrackster = nodes
         else:
             numTrackster = self.max_trackster + 1
         y = np.full(numTrackster, -1)
 
-        group = start_group
-        for i in arr:
-            if (i == self.word2index[";"]):
-                group += 1
-            elif (i > self.word2index[";"]):
-                y[self.index2word[i]] = group
+        for group, arr in enumerate(arrs):
+            trackster = list(map(self.index2word.get, arr[1:-1]))
+            y[trackster] = start_group + group
+
         return y
 
     # Remove padding:  add in dataset preparation
@@ -104,16 +73,6 @@ class Lang:
 
         return np.trim_zeros(seq[index:], trim='b')
 
-    def permute_groups(self, arr):
-        blocks = ak.Array(np.split(arr[1:-1], np.nonzero(arr == self.word2index[";"])[0])[:-1])
-        numGroups = len(blocks)
-        opts = np.array(list(itertools.permutations(list(range(numGroups)))))
-
-        permutations = ak.flatten(blocks[opts], -1).to_numpy()
-        permutations = np.pad(permutations, ((0, 0), (1, 0)), constant_values=self.word2index["<SOS>"])
-        permutations = np.pad(permutations, ((0, 0), (0, 1)), constant_values=self.word2index["<EOS>"])
-        return permutations
-
     def starting_seq(self, root, seq_length):
         seq = torch.full((seq_length, ), self.word2index["<PAD>"])
         seq[0] = self.word2index["<SOS>"]
@@ -124,12 +83,13 @@ class Lang:
 if __name__ == "__main__":
     lang = Lang(14)
 
-    # print(lang.y2seq(np.array([0, 0, 0, 1, 1, 1, -1, -1, 1, 0])))
-    # print(lang.y2seq(np.array([0, 0, 0, 1, 1, 1, -1, -1, 1, 0]), index=3))
-    # print(lang.y2seq(np.array([0, 0, 0, 1, 1, 1, -1, -1, 1, 0]), index=3, seq_length=5))
-    # print(lang.y2seq(np.array([0, 1]), seq_length=5))
-    # print(lang.y2seq(np.array([0, 1]), index=1, seq_length=5))
-    # print(lang.seq2y(np.array([1, 4, 5, 8, 3, 6, 2])))
+    tracksters = np.array([3, 4, 1, 2, 5])
+    y = np.array([-1, 0, 0, 1, 1, 1, 0, 1])
 
-    arr = lang.y2seq(np.array([0, 0, 0, 1, 1, 1, -1, -1, 0]))
-    print(lang.permute_groups(arr))
+    arr1, tracksters1 = lang.y2seq(3, tracksters, y)
+    print("seq 1", arr1, tracksters1)
+
+    arr2, tracksters2 = lang.y2seq(1, tracksters, y)
+    print("seq 2", arr2, tracksters2)
+
+    print(lang.seq2y([arr1, arr2], nodes=8))

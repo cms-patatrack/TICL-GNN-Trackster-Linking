@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from EdgeConvBlock import EdgeConvBlock
-from ClusterDataset import ClusterDataset
+from GNNDataset import GNNDataset
 
 
 def weight_init(m):
@@ -17,7 +17,7 @@ def weight_init(m):
 
 def prepare_network_input_data(X, edge_index, edge_features):
     X = torch.nan_to_num(X, nan=0.0)
-    X = X[:, ClusterDataset.model_feature_keys]
+    X = X[:, GNNDataset.model_feature_keys]
 
     edge_features = torch.nan_to_num(edge_features, nan=0.0)
     return torch.unsqueeze(X, dim=0).float(), torch.unsqueeze(edge_index, dim=0).float(), torch.unsqueeze(edge_features, dim=0).float()
