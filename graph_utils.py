@@ -1,5 +1,5 @@
 import torch
-import numpy as np
+import cupy as cp
 import awkward as ak
 
 from typing import List, Dict, Any
@@ -7,8 +7,8 @@ from collections import defaultdict
 
 
 class TileConstants:
-    minEta = -np.pi
-    maxEta = np.pi
+    minEta = -cp.pi
+    maxEta = cp.pi
     nPhiBins = 72  # Typically 0-2π mapped to bins
 
 
@@ -32,7 +32,7 @@ class TICLLayerTile:
 
     def fill(self, eta, phi, idx):
         eta_bin = int((eta - TileConstants.minEta) * 10)  # example binning
-        phi_bin = int((phi + np.pi) / (2 * np.pi) * TileConstants.nPhiBins)
+        phi_bin = int((phi + cp.pi) / (2 * cp.pi) * TileConstants.nPhiBins)
         self.tiles[(eta_bin, phi_bin)].append(idx)
 
     def __getitem__(self, bin_idx):
@@ -44,8 +44,8 @@ class TICLLayerTile:
     def searchBoxEtaPhi(self, eta_min, eta_max, phi_min, phi_max):
         eta_min_bin = int((eta_min - TileConstants.minEta) * 10)
         eta_max_bin = int((eta_max - TileConstants.minEta) * 10)
-        phi_min_bin = int((phi_min + np.pi) / (2 * np.pi) * TileConstants.nPhiBins)
-        phi_max_bin = int((phi_max + np.pi) / (2 * np.pi) * TileConstants.nPhiBins)
+        phi_min_bin = int((phi_min + cp.pi) / (2 * cp.pi) * TileConstants.nPhiBins)
+        phi_max_bin = int((phi_max + cp.pi) / (2 * cp.pi) * TileConstants.nPhiBins)
         return [eta_min_bin, eta_max_bin, phi_min_bin, phi_max_bin]
 
 
@@ -54,12 +54,12 @@ def build_subgraph(graph, root, neighborhood=1):
 
     if (neighborhood == 0):
         return neighbors
-    subgraph = np.copy(neighbors)
+    subgraph = cp.copy(neighbors)
 
     for n in neighbors:
-        subgraph = np.append(subgraph, build_subgraph(graph, n, neighborhood-1))
+        subgraph = cp.append(subgraph, build_subgraph(graph, n, neighborhood-1))
 
-    return np.unique(subgraph)
+    return cp.unique(subgraph)
 
 
 def find_connected_components(graph, num_nodes):

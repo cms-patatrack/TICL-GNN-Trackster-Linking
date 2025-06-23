@@ -3,16 +3,18 @@ from glob import glob
 
 import uproot as uproot
 import awkward as ak
+import cupy as cp
 import numpy as np
 
-from sklearn.neighbors import KDTree
 from sklearn.preprocessing import MaxAbsScaler
 import joblib
+from tqdm import tqdm
 
 import torch
 from torch_geometric.data import Dataset, Data
 
 from graph_utils import build_ticl_graph
+from data_utils import *
 
 
 class GNNDataset(Dataset):
@@ -20,11 +22,13 @@ class GNNDataset(Dataset):
                          "sigmaPCA1", "sigmaPCA2", "sigmaPCA3", "num_LCs", "num_hits", "raw_energy", "raw_em_energy", "photon_prob", "electron_prob", "muon_prob",
                          "neutral_pion_prob", "charged_hadron_prob", "neutral_hadron_prob", "z_min", "z_max", "LC_density", "trackster_density", "time", "idx"]
     node_feature_dict = {k: v for v, k in enumerate(node_feature_keys)}
-    model_feature_keys = np.array(["idx", "barycenter_eta", "barycenter_phi", "raw_energy"])
-    # model_feature_keys = np.array([0,  2,  3,  4,  6,  7, 10, 14, 15, 16, 17, 18, 22, 24, 25, 26, 28])
+    model_feature_keys = ["idx", "barycenter_eta", "barycenter_phi", "raw_energy"]
 
-    def __init__(self, root, histo_path, transform=None, test=False, pre_transform=None, pre_filter=None):
+    # Skeleton Features computional intensive -> Turn off if not needed
+    def __init__(self, root, histo_path, transform=None, test=False, skeleton_features=False, pre_transform=None, pre_filter=None):
         self.test = test
+        self.skeleton_features = skeleton_features
+
         self.histo_path = histo_path
         self.root_dir = root
         super().__init__(root, transform, pre_transform, pre_filter)
@@ -52,8 +56,7 @@ class GNNDataset(Dataset):
                 f"No branch with name '{branch_name}' found in the file.")
 
         # Find the key with the highest cycle
-        highest_cycle_key = max(
-            matching_keys, key=lambda key: int(key.split(";")[1]))
+        highest_cycle_key = max(matching_keys, key=lambda key: int(key.split(";")[1]))
 
         # Load the branch with the highest cycle
         branch = file[highest_cycle_key]
@@ -66,7 +69,7 @@ class GNNDataset(Dataset):
         else:
             files = glob(f"{self.histo_path}/train/*.root")
 
-        for id in range(len(files)):
+        for id in tqdm(range(len(files))):
             file = uproot.open(files[id])
 
             alltracksters = self.load_branch_with_highest_cycle(file, 'ticlDumper/ticlTrackstersCLUE3DHigh')
@@ -74,6 +77,8 @@ class GNNDataset(Dataset):
             allassociations = self.load_branch_with_highest_cycle(file, 'ticlDumper/associations')
 
             alltracksters_array = alltracksters.arrays()
+            allclusters_array = allclusters.arrays()
+            allassociations_array = allassociations.arrays()
             NTracksters = alltracksters.arrays().NTracksters
 
             try:
@@ -89,41 +94,19 @@ class GNNDataset(Dataset):
                                         "eVector0_y", "eVector0_z",  "EV1", "EV2", "EV3", "sigmaPCA1", "sigmaPCA2", "sigmaPCA3", "raw_energy", "raw_em_energy", "time"]
             data = alltracksters.arrays(node_feature_keys_before)
 
-            cluster_number_of_hits = allclusters.arrays().cluster_number_of_hits
-            cluster_layer_id = allclusters.arrays().cluster_layer_id
-            vertices_indexes = alltracksters.arrays().vertices_indexes
-            allassociations_array = allassociations.arrays()
+            # conatenate all axes of vertices
+            data["vertices"] = ak.concatenate([alltracksters_array["vertices_x"][:, :, :, cp.newaxis], alltracksters_array["vertices_y"]
+                                              [:, :, :, cp.newaxis], alltracksters_array["vertices_z"][:, :, :, cp.newaxis]], axis=-1)
 
-            num_LCs = ak.count(alltracksters_array.vertices_indexes, axis=2)
-            data["num_LCs"] = num_LCs
-            data["z_min"] = ak.min(alltracksters_array.vertices_z, axis=2)
-            data["z_max"] = ak.max(alltracksters_array.vertices_z, axis=2)
+            data["num_LCs"], data["num_hits"], data["length"] = calc_trackster_size(alltracksters_array, allclusters_array)
+            data["z_min"] = ak.min(alltracksters_array["vertices_z"], axis=2)
+            data["z_max"] = ak.max(alltracksters_array["vertices_z"], axis=2)
 
-            data["vertices"] = ak.concatenate([alltracksters_array["vertices_x"][:, :, :, np.newaxis], alltracksters_array["vertices_y"]
-                                              [:, :, :, np.newaxis], alltracksters_array["vertices_z"][:, :, :, np.newaxis]], axis=-1)
+            data["LC_density"] = calc_LC_density(data["num_LCs"])
+            # trackster density per event -> every trackster has same value
+            data["trackster_density"] = ak.Array(np.zeros_like(data["num_LCs"])) + calc_trackster_density(NTracksters)
 
-            hits = ak.to_list(np.zeros_like(data.num_LCs))
-            length = ak.to_list(np.zeros_like(data.num_LCs))
-
-            cluster_hits = cluster_number_of_hits[ak.flatten(vertices_indexes, axis=-1)]
-            cluster_layer_ids = cluster_layer_id[ak.flatten(vertices_indexes, axis=-1)]
-            vertices_count = ak.count(vertices_indexes, axis=-1)
-
-            for i in range(len(data.num_LCs)):
-                hits[i] = ak.sum(ak.unflatten(
-                    cluster_hits[i], vertices_count[i]), axis=-1)
-                length[i] = (ak.max(ak.unflatten(cluster_layer_ids[i], vertices_count[i]), axis=-1) -
-                             ak.min(ak.unflatten(cluster_layer_ids[i], vertices_count[i]), axis=-1)) / 47
-
-            data["num_hits"] = hits
-            data["length"] = length
-
-            volume = 2*(3 - 1.5) * (2 * 47)
-            data["LC_density"] = data.num_LCs / volume
-            data["trackster_density"] = ak.Array(
-                np.zeros_like(data.num_LCs)) + NTracksters / volume
-
-            probabilities = alltracksters_array.id_probabilities
+            probabilities = alltracksters_array["id_probabilities"]
             data["photon_prob"] = probabilities[:, :, 0]
             data["electron_prob"] = probabilities[:, :, 1]
             data["muon_prob"] = probabilities[:, :, 2]
@@ -131,51 +114,41 @@ class GNNDataset(Dataset):
             data["charged_hadron_prob"] = probabilities[:, :, 4]
             data["neutral_hadron_prob"] = probabilities[:, :, 5]
 
-            # TODO: Check if correct calc
-            idx = allassociations_array.ticlTrackstersCLUE3DHigh_recoToSim_CP_score < 0.2
-            simTracksters = allassociations_array.ticlTrackstersCLUE3DHigh_recoToSim_CP[allassociations_array.ticlTrackstersCLUE3DHigh_recoToSim_CP_score < 0.2]
-            emptys = np.full_like(ak.count(allassociations_array.ticlTrackstersCLUE3DHigh_recoToSim_CP, axis=-1), -1)
+            data["y"], data["shared_e"], data["score"] = calc_reco_2_sim_trackster_fit(
+                allassociations_array["ticlTrackstersCLUE3DHigh_recoToSim_CP"],
+                allassociations_array["ticlTrackstersCLUE3DHigh_recoToSim_CP_score"],
+                allassociations_array["ticlTrackstersCLUE3DHigh_recoToSim_CP_sharedE"])
+            data["inner"] = allgraph_array["inner"]
+            data["outer"] = allgraph_array["outer"]
 
-            data["y"] = ak.flatten(ak.where(
-                ak.count(simTracksters, axis=-1) == 1, allassociations_array.ticlTrackstersCLUE3DHigh_recoToSim_CP[idx],
-                ak.unflatten(emptys, 1, axis=-1)),
-                axis=-1)
-            data["shared_e"] = ak.flatten(ak.where(
-                ak.count(simTracksters, axis=-1) == 1, allassociations_array.ticlTrackstersCLUE3DHigh_recoToSim_CP_sharedE[idx],
-                ak.unflatten(emptys, 1, axis=-1)),
-                axis=-1)
-            data["score"] = ak.flatten(ak.where(
-                ak.count(simTracksters, axis=-1) == 1, allassociations_array.ticlTrackstersCLUE3DHigh_recoToSim_CP_score[idx],
-                ak.unflatten(emptys, 1, axis=-1)),
-                axis=-1)
-
-            data["inner"] = allgraph_array.inner
-            data["outer"] = allgraph_array.outer
-
-            roots = ak.num(allgraph_array.inner, axis=-1)
+            roots = ak.num(allgraph_array["inner"], axis=-1)
             data["roots"] = ak.local_index(roots)[roots == 0]
-            data["idx"] = ak.local_index(data.barycenter_x)
+            data["idx"] = ak.local_index(data["barycenter_x"])
 
             torch.save(data, osp.join(self.raw_dir, f'data_id_{id}.pt'))
 
     def process(self):
         idx = 0
         self.scaler = MaxAbsScaler()
-        for raw_path in self.raw_paths:
+        for raw_path in tqdm(self.raw_paths):
             print(raw_path)
             run = torch.load(raw_path, weights_only=False)
             nEvents = len(run)
 
             for event in range(nEvents):
-                nTracksters = len(run[event].barycenter_x)
+                nTracksters = len(run[event]["barycenter_x"])
+
+                # Skip if not multiple tracksters
                 if (nTracksters <= 1):
                     continue
 
-                features = np.zeros((nTracksters, len(self.node_feature_keys)))
+                # build feature list
+                features = cp.zeros((nTracksters, len(self.node_feature_keys)), dtype='f')
                 for i, key in enumerate(self.node_feature_keys):
                     features[:, i] = ak.to_numpy(run[event][key])
 
-                self.scaler.partial_fit(X)
+                # Fit a normalization scaler on training data
+                self.scaler.partial_fit(features)
 
                 # Create base graph from geometrical graph
                 edges = [[], []]
@@ -183,46 +156,26 @@ class GNNDataset(Dataset):
                     edges[0].extend([i] * len(run[event].outer[i]))
                     edges[1].extend(run[event].outer[i])
 
-                edges = np.array(edges)
+                edges = cp.array(edges)
                 if (edges.shape[1] < 2):
                     continue
 
-                edge_features = np.zeros((len(edges[0, :]), 7))
-                edge_features[:, 0] = np.abs(features[edges[1, :], 16] - features[edges[0, :], 16])
-                edge_features[:, 1] = np.abs(features[edges[1, :], 2] - features[edges[0, :], 2])
-                edge_features[:, 4] = np.linalg.norm(features[edges[1, :], :2] - features[edges[0, :], :2], axis=1)
-                edge_features[:, 5] = np.arccos(np.clip(np.sum(np.multiply(features[edges[1, :], 5:8], features[edges[0, :], 5:8]), axis=1), a_min=-1, a_max=1))
-                edge_features[:, 6] = np.abs(features[edges[1, :], 28] - features[edges[0], 28])
+                if self.skeleton_features:
+                    edge_features = cp.zeros((len(edges[0, :]), 7), dtype='f')
 
-                transp = edges.T
-                edge_indices = np.zeros((nTracksters, nTracksters, ), dtype=np.int64)
+                    edge_features[:, 5], edge_features[:, 6] = calc_min_max_skeleton_dist(nTracksters, edges, run.vertices[event])
+                else:
+                    edge_features = cp.zeros((len(edges[0, :]), 5), dtype='f')
 
-                for i in range(len(edges[0, :])):
-                    edge_indices[transp[i, 0], transp[i, 1]] = i
+                edge_features[:, 0] = calc_edge_difference(edges, features, self.node_feature_dict, key="raw_energy")
+                edge_features[:, 1] = calc_edge_difference(edges, features, self.node_feature_dict, key="barycenter_z")
+                edge_features[:, 2] = calc_transverse_plane_separation(edges, features, self.node_feature_dict)
+                edge_features[:, 3] = calc_spatial_compatibility(edges, features, self.node_feature_dict)
+                edge_features[:, 4] = calc_edge_difference(edges, features, self.node_feature_dict, key="time")
 
-                # for root in range(nTracksters):
-                #     tree = KDTree(run.vertices[event, root], leaf_size=2)
-                #     num = len(run.vertices[event, root])
-                #     for target in range(root, nTracksters):
-                #         if (root != target):
-                #             dist, _ = tree.query(
-                #                 run.vertices[event, target], k=num)
-                #             edge_features[edge_indices[root, target], 2] = np.min(dist)
-                #             edge_features[edge_indices[root, target], 3] = np.max(dist)
-
-                #             edge_features[edge_indices[target, root], 2] = np.min(
-                #                 dist)
-                #             edge_features[edge_indices[target, root], 3] = np.max(
-                #                 dist)
-                #         else:
-                #             edge_features[edge_indices[root, target], 2] = 0
-                #             edge_features[edge_indices[root, target], 3] = 0
-
-                y = np.zeros(edges.shape[1])
+                y = cp.zeros(edges.shape[1], dtype='f')
                 for i, e in enumerate(edges.T):
-                    if (run[event].y[e[0]] != -1 and (run[event].y[e[0]] == run[event].y[e[1]])):
-                        y[i] = np.round((1-run[event].score[e[0]]) * run[event].shared_e[e[0]]/run[event].raw_energy[e[0]] +
-                                        (1-run[event].score[e[1]]) * run[event].shared_e[e[1]]/run[event].raw_energy[e[1]], 3)/2
+                    calc_group_score(run[event].y[e], run[event].score[e], run[event].shared_e[e], run[event].raw_energy[e])
 
                 # Read data from `raw_path`.
                 data = Data(
@@ -244,7 +197,7 @@ class GNNDataset(Dataset):
                 idx += 1
 
         if (not self.test):
-            joblib.dump(scaler, osp.join(self.root_dir, "scaler.joblib"))
+            joblib.dump(self.scaler, osp.join(self.root_dir, "scaler.joblib"))
 
     def len(self):
         return len(self.processed_file_names)
