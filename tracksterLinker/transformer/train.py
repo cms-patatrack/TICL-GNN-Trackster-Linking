@@ -3,8 +3,6 @@ import numpy as np
 
 import torch
 
-from LossFunction import Loss
-
 
 def train(model, optimizer, loader, epoch, loss_obj, vocab_size, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
     epoch_loss = 0

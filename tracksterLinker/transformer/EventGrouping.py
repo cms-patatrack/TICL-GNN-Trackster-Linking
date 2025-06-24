@@ -4,9 +4,9 @@ import torch.nn.functional as F
 
 import numpy as np
 
-from GNNDataset import GNNDataset
+from datasets.GNNDataset import GNNDataset
 from Transformer import Transformer
-from lang import Lang
+from tracksterLinker.datasets.lang import Lang
 
 
 class EventGrouping(nn.Module):

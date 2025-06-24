@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
 
 from EdgeConvBlock import EdgeConvBlock
-from GNNDataset import GNNDataset
+from datasets.GNNDataset import GNNDataset
 
 
 def weight_init(m):

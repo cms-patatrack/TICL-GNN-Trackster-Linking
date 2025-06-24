@@ -3,7 +3,7 @@ import numpy as np
 
 import torch
 
-from GNN_TrackLinkingNet import FocalLoss
+from tracksterLinker.GNN.TrackLinkingNet import FocalLoss
 
 
 def train(model, opt, loader, epoch, emb_out=False, loss_obj=FocalLoss(), device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):

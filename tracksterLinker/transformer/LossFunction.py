@@ -2,11 +2,13 @@ import torch.nn as nn
 import torch
 import numpy as np
 
+# WIP: How to accept group of correct answers
+
 
 class Loss(nn.Module):
     def __init__(self, converter, vocab_size, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
         super(Loss, self).__init__()
-        
+
         weights = torch.ones(vocab_size)
         weights[converter.word2index[";"]] = 0.5
         self.criterion = nn.CrossEntropyLoss(label_smoothing=0.1, weight=weights.to(device), ignore_index=converter.word2index["<PAD>"])

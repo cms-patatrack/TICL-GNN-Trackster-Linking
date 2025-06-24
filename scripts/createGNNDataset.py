@@ -1,7 +1,10 @@
 import os.path as osp
 
-from GNNDataset import GNNDataset
-from data_statistics import *
+import sys
+sys.path.append("..")
+
+from tracksterLinker.datasets.GNNDataset import GNNDataset
+from tracksterLinker.utils.dataStatistics import *
 
 base_folder = "/home/czeh"
 model_folder = osp.join(base_folder, "GNN/model")

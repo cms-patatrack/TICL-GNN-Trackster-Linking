@@ -12,8 +12,6 @@ from sklearn.metrics import class_likelihood_ratios, precision_recall_fscore_sup
 import seaborn as sn
 import mplhep as hep
 
-from GNN_TrackLinkingNet import prepare_network_input_data, FocalLoss
-
 
 plt.style.use(hep.style.CMS)
 """Testing of the trained models."""
