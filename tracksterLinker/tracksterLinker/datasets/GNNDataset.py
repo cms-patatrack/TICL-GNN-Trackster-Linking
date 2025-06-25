@@ -13,8 +13,8 @@ from tqdm import tqdm
 import torch
 from torch_geometric.data import Dataset, Data
 
-from graph_utils import build_ticl_graph
-from data_utils import *
+from tracksterLinker.utils.graphUtils import build_ticl_graph
+from tracksterLinker.utils.dataUtils import *
 
 
 class GNNDataset(Dataset):

@@ -8,7 +8,7 @@ import torch
 from torch.utils.data import Dataset
 import torch.nn.functional as F
 
-from lang import Lang
+from tracksterLinker.datasets.lang import Lang
 
 from collections.abc import Sequence
 from typing import Callable
