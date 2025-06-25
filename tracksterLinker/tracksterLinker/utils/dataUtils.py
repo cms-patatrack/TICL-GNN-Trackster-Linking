@@ -57,12 +57,12 @@ def calc_trackster_size(tracksters, clusters):
 
 def calc_spatial_compatibility(edges, features, feature_dict):
     principal_comp_vectors = [feature_dict["eVector0_x"], feature_dict["eVector0_y"], feature_dict["eVector0_z"]]
-    return cp.arccos(cp.clip(cp.sum(cp.multiply(features[edges[1, :], principal_comp_vectors], features[edges[0, :], principal_comp_vectors]), axis=1), a_min=-1, a_max=1))
+    return cp.arccos(cp.clip(cp.sum(cp.multiply(features[cp.ix_(edges[1, :], principal_comp_vectors)], features[cp.ix_(edges[0, :], principal_comp_vectors)]), axis=1), a_min=-1, a_max=1))
 
 
 def calc_transverse_plane_separation(edges, features, feature_dict):
     plane = [feature_dict["barycenter_x"], feature_dict["barycenter_y"]]
-    return cp.linalg.norm(features[edges[1, :], plane] - features[edges[0, :], plane], axis=1)
+    return cp.linalg.norm(features[cp.ix_(edges[1, :], plane)] - features[cp.ix_(edges[0, :], plane)], axis=1)
 
 
 def calc_edge_difference(edges, features, feature_dict, key=None):

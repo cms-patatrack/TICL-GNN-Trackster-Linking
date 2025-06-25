@@ -125,14 +125,14 @@ class GNNDataset(Dataset):
             data["roots"] = ak.local_index(roots)[roots == 0]
             data["idx"] = ak.local_index(data["barycenter_x"])
 
-            torch.save(data, osp.join(self.raw_dir, f'data_id_{id}.pt'))
+            torch.save(data , osp.join(self.raw_dir, f'data_id_{id}.pt'))
 
     def process(self):
         idx = 0
         self.scaler = MaxAbsScaler()
         for raw_path in tqdm(self.raw_paths):
             print(raw_path)
-            run = torch.load(raw_path, weights_only=False)
+            run = ak.to_backend(torch.load(raw_path, weights_only=False), "cuda")
             nEvents = len(run)
 
             for event in range(nEvents):
@@ -145,16 +145,16 @@ class GNNDataset(Dataset):
                 # build feature list
                 features = cp.zeros((nTracksters, len(self.node_feature_keys)), dtype='f')
                 for i, key in enumerate(self.node_feature_keys):
-                    features[:, i] = ak.to_numpy(run[event][key])
+                    features[:, i] = cp.array(ak.to_numpy(run[event][key]), dtype='f')
 
                 # Fit a normalization scaler on training data
-                self.scaler.partial_fit(features)
+                self.scaler.partial_fit(features.get())
 
                 # Create base graph from geometrical graph
                 edges = [[], []]
                 for i in range(nTracksters):
                     edges[0].extend([i] * len(run[event].outer[i]))
-                    edges[1].extend(run[event].outer[i])
+                    edges[1].extend(ak.to_list(run[event].outer[i]))
 
                 edges = cp.array(edges)
                 if (edges.shape[1] < 2):
@@ -179,10 +179,10 @@ class GNNDataset(Dataset):
 
                 # Read data from `raw_path`.
                 data = Data(
-                    x=torch.from_numpy(features),
-                    num_nodes=nTracksters, edge_index=torch.from_numpy(edges),
-                    edges_features=torch.from_numpy(edge_features),
-                    y=torch.from_numpy(y),
+                    x=torch.utils.dlpack.from_dlpack(features.toDlpack()),
+                    num_nodes=nTracksters, edge_index=torch.utils.dlpack.from_dlpack(edges.toDlpack()),
+                    edges_features=torch.utils.dlpack.from_dlpack(edge_features.toDlpack()),
+                    y=torch.utils.dlpack.from_dlpack(y.toDlpack()),
                     cluster=torch.from_numpy(run[event].y.to_numpy()),
                     roots=torch.from_numpy(run[event].roots.to_numpy()))
 
