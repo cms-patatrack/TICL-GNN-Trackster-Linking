@@ -138,6 +138,7 @@ class GNNDataset(Dataset):
             nEvents = len(run)
 
             for event in range(nEvents):
+                print(event)
                 nTracksters = len(run[event]["barycenter_x"])
 
                 # Skip if not multiple tracksters
@@ -151,7 +152,6 @@ class GNNDataset(Dataset):
 
                 # Fit a normalization scaler on training data
                 self.scaler.partial_fit(features.get())
-
                 # Create base graph from geometrical graph
                 edges = [[], []]
                 for i in range(nTracksters):
@@ -168,16 +168,14 @@ class GNNDataset(Dataset):
                     edge_features[:, 5], edge_features[:, 6] = calc_min_max_skeleton_dist(nTracksters, edges, run.vertices[event])
                 else:
                     edge_features = cp.zeros((len(edges[0, :]), 5), dtype='f')
-
                 edge_features[:, 0] = calc_edge_difference(edges, features, self.node_feature_dict, key="raw_energy")
                 edge_features[:, 1] = calc_edge_difference(edges, features, self.node_feature_dict, key="barycenter_z")
                 edge_features[:, 2] = calc_transverse_plane_separation(edges, features, self.node_feature_dict)
                 edge_features[:, 3] = calc_spatial_compatibility(edges, features, self.node_feature_dict)
                 edge_features[:, 4] = calc_edge_difference(edges, features, self.node_feature_dict, key="time")
 
-                y = cp.zeros(edges.shape[1], dtype='f')
-                for i, e in enumerate(edges.T):
-                    calc_group_score(run[event].y[e], run[event].score[e], run[event].shared_e[e], run[event].raw_energy[e])
+
+                y = calc_group_score(edges, run[event].y, run[event].score, run[event].shared_e, run[event].raw_energy)
 
                 # Read data from `raw_path`.
                 data = Data(
@@ -193,7 +191,6 @@ class GNNDataset(Dataset):
 
                 if self.pre_transform is not None:
                     data = self.pre_transform(data)
-
                 torch.save(data, osp.join(self.processed_dir, f'data_{idx}.pt'))
                 idx += 1
 
