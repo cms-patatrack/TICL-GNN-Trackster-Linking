@@ -25,9 +25,11 @@ class GNNDataset(Dataset):
     model_feature_keys = ["idx", "barycenter_eta", "barycenter_phi", "raw_energy"]
 
     # Skeleton Features computional intensive -> Turn off if not needed
-    def __init__(self, root, histo_path, transform=None, test=False, skeleton_features=False, pre_transform=None, pre_filter=None):
+    def __init__(self, root, histo_path, transform=None, test=False, skeleton_features=False, pre_transform=None, pre_filter=None,
+                 device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
         self.test = test
         self.skeleton_features = skeleton_features
+        self.device = device
 
         self.histo_path = histo_path
         self.root_dir = root
@@ -125,7 +127,7 @@ class GNNDataset(Dataset):
             data["roots"] = ak.local_index(roots)[roots == 0]
             data["idx"] = ak.local_index(data["barycenter_x"])
 
-            torch.save(data , osp.join(self.raw_dir, f'data_id_{id}.pt'))
+            torch.save(data, osp.join(self.raw_dir, f'data_id_{id}.pt'))
 
     def process(self):
         idx = 0
@@ -145,7 +147,7 @@ class GNNDataset(Dataset):
                 # build feature list
                 features = cp.zeros((nTracksters, len(self.node_feature_keys)), dtype='f')
                 for i, key in enumerate(self.node_feature_keys):
-                    features[:, i] = cp.array(ak.to_numpy(run[event][key]), dtype='f')
+                    features[:, i] = ak.to_cupy(run[event][key])
 
                 # Fit a normalization scaler on training data
                 self.scaler.partial_fit(features.get())
@@ -183,8 +185,8 @@ class GNNDataset(Dataset):
                     num_nodes=nTracksters, edge_index=torch.utils.dlpack.from_dlpack(edges.toDlpack()),
                     edges_features=torch.utils.dlpack.from_dlpack(edge_features.toDlpack()),
                     y=torch.utils.dlpack.from_dlpack(y.toDlpack()),
-                    cluster=torch.from_numpy(run[event].y.to_numpy()),
-                    roots=torch.from_numpy(run[event].roots.to_numpy()))
+                    cluster=ak.to_torch(run[event].y),
+                    roots=ak.to_torch(run[event].roots))
 
                 if self.pre_filter is not None and not self.pre_filter(data):
                     continue
@@ -192,8 +194,7 @@ class GNNDataset(Dataset):
                 if self.pre_transform is not None:
                     data = self.pre_transform(data)
 
-                torch.save(data, osp.join(
-                    self.processed_dir, f'data_{idx}.pt'))
+                torch.save(data, osp.join(self.processed_dir, f'data_{idx}.pt'))
                 idx += 1
 
         if (not self.test):
