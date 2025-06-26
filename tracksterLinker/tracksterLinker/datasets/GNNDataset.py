@@ -146,19 +146,17 @@ class GNNDataset(Dataset):
                     continue
 
                 # build feature list
-                features = cp.zeros((nTracksters, len(self.node_feature_keys)), dtype='f')
-                for i, key in enumerate(self.node_feature_keys):
-                    features[:, i] = ak.to_cupy(run[event][key])
+                features = cp.stack([ak.to_cupy(run[event][field]) for field in self.node_feature_keys], axis=1)
 
                 # Fit a normalization scaler on training data
                 self.scaler.partial_fit(features.get())
-                # Create base graph from geometrical graph
-                edges = [[], []]
-                for i in range(nTracksters):
-                    edges[0].extend([i] * len(run[event].outer[i]))
-                    edges[1].extend(ak.to_list(run[event].outer[i]))
+                # Create base graph from geometrical graph = [[], []]
+                targets = ak.ravel(run[event].outer)
+                sources = ak.local_index(run[event].outer)
+                sources = ak.broadcast_arrays(sources, run[event].outer)[0]
+                sources = ak.ravel(sources)
 
-                edges = cp.array(edges)
+                edges = cp.stack([ak.to_cupy(sources), ak.to_cupy(targets)])
                 if (edges.shape[1] < 2):
                     continue
 
@@ -173,7 +171,6 @@ class GNNDataset(Dataset):
                 edge_features[:, 2] = calc_transverse_plane_separation(edges, features, self.node_feature_dict)
                 edge_features[:, 3] = calc_spatial_compatibility(edges, features, self.node_feature_dict)
                 edge_features[:, 4] = calc_edge_difference(edges, features, self.node_feature_dict, key="time")
-
 
                 y = calc_group_score(edges, run[event].y, run[event].score, run[event].shared_e, run[event].raw_energy)
 
