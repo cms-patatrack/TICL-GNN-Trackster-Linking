@@ -14,9 +14,6 @@ def train(model, opt, loader, epoch, emb_out=False, loss_obj=FocalLoss(), device
         # reset optimizer and enable training mode
         opt.zero_grad()
 
-        # move data to the device
-        sample = sample.to(device)
-
         if emb_out:
             z, _ = model(sample, device=device, emb_out=True)
         else:
@@ -42,7 +39,6 @@ def test(model, loader, epoch, loss_obj=FocalLoss(), device=torch.device('cuda' 
         print("Validation step")
 
         for sample in tqdm(loader, desc=f"Validation Epoch {epoch}"):
-            sample = sample.to(device)
             nn_pred = model(sample, device=device)
             pred += nn_pred.tolist()
             y += sample.y.tolist()

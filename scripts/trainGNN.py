@@ -1,6 +1,7 @@
 import os.path as osp
 import os
 from datetime import datetime
+import tqdm
 
 import torch
 from torch.optim.lr_scheduler import CosineAnnealingLR
@@ -25,10 +26,11 @@ data_folder_test = osp.join(base_folder, "GNN/dataset_test")
 os.makedirs(model_folder, exist_ok=True)
 
 # Prepare Dataset
+batch_size = 12
 dataset_test = GNNDataset(data_folder_test, hist_folder, test=True)
 dataset_training = GNNDataset(data_folder_training, hist_folder)
-train_dl = DataLoader(dataset_training, shuffle=True)
-test_dl = DataLoader(dataset_test, shuffle=True)
+train_dl = DataLoader(dataset_training, shuffle=True, batch_size=12)
+test_dl = DataLoader(dataset_test, shuffle=True, batch_size=12)
 
 # CUDA Setup
 device = torch.device('cuda' if torch.cuda.is_available() else "cpu")
@@ -38,7 +40,7 @@ print(f"Using device: {device}")
 # Prepare Model
 epochs = 200
 
-model = GNN_TrackLinkingNet(input_dim=dataset_training.model_feature_keys.shape[0],
+model = GNN_TrackLinkingNet(input_dim=len(dataset_training.model_feature_keys),
                             edge_feature_dim=dataset_training.get(0).edges_features.shape[1],
                             edge_hidden_dim=16, hidden_dim=16, weighted_aggr=True,
                             dropout=0.3)
@@ -65,7 +67,7 @@ train_loss_hist = []
 val_loss_hist = []
 date = f"{datetime.now():%Y-%m-%d}"
 
-for epoch in range(start_epoch, epochs):
+for epoch in tqdm(range(start_epoch, epochs)):
     print(f'Epoch: {epoch+1}')
 
     loss = train(model, optimizer, train_dl, epoch+1, device=device, loss_obj=loss_obj)

@@ -22,7 +22,7 @@ class GNNDataset(Dataset):
                          "sigmaPCA1", "sigmaPCA2", "sigmaPCA3", "num_LCs", "num_hits", "raw_energy", "raw_em_energy", "photon_prob", "electron_prob", "muon_prob",
                          "neutral_pion_prob", "charged_hadron_prob", "neutral_hadron_prob", "z_min", "z_max", "LC_density", "trackster_density", "time", "idx"]
     node_feature_dict = {k: v for v, k in enumerate(node_feature_keys)}
-    model_feature_keys = ["idx", "barycenter_eta", "barycenter_phi", "raw_energy"]
+    model_feature_keys = node_feature_keys[:-1]
 
     # Skeleton Features computional intensive -> Turn off if not needed
     def __init__(self, root, histo_path, transform=None, test=False, skeleton_features=False, pre_transform=None, pre_filter=None,
@@ -133,12 +133,10 @@ class GNNDataset(Dataset):
         idx = 0
         self.scaler = MaxAbsScaler()
         for raw_path in tqdm(self.raw_paths):
-            print(raw_path)
             run = ak.to_backend(torch.load(raw_path, weights_only=False), "cuda")
             nEvents = len(run)
 
             for event in range(nEvents):
-                print(event)
                 nTracksters = len(run[event]["barycenter_x"])
 
                 # Skip if not multiple tracksters

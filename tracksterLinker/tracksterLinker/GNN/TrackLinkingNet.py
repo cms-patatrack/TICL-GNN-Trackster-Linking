@@ -6,8 +6,8 @@ import torch.nn.functional as F
 
 from torch.utils.tensorboard import SummaryWriter
 
-from EdgeConvBlock import EdgeConvBlock
-from datasets.GNNDataset import GNNDataset
+from tracksterLinker.GNN.EdgeConvBlock import EdgeConvBlock
+from tracksterLinker.datasets.GNNDataset import GNNDataset
 
 
 def weight_init(m):
@@ -154,7 +154,6 @@ class GNN_TrackLinkingNet(nn.Module):
         X_norm = (X - X.mean(dim=0)) / std
 
         edge_features = torch.squeeze(edge_features, dim=0)
-        edge_features_norm = torch.zeros_like(edge_features)
         epsilon = 10e-5 * torch.ones(edge_features.shape, device=device)
         std = edge_features.std(dim=0, unbiased=False) + epsilon
         edge_features_norm = (edge_features - edge_features.mean(dim=0)) / std

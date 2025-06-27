@@ -32,7 +32,7 @@ class ClusterDataset(Dataset):
                          "sigmaPCA1", "sigmaPCA2", "sigmaPCA3", "num_LCs", "num_hits", "raw_energy", "raw_em_energy", "photon_prob", "electron_prob", "muon_prob",
                          "neutral_pion_prob", "charged_hadron_prob", "neutral_hadron_prob", "z_min", "z_max", "LC_density", "trackster_density", "time", "idx"]
     node_feature_dict = {k: v for v, k in enumerate(node_feature_keys)}
-    model_feature_keys = np.array(["barycenter_eta", "barycenter_phi", "raw_energy"])
+    model_feature_keys = ["barycenter_eta", "barycenter_phi", "raw_energy"]
 
     def __init__(self, root, input_length, filter=True, scale=None, output_group=False, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
         self.input_length = input_length
