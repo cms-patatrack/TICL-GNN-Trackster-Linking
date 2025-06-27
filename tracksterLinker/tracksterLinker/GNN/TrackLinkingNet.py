@@ -17,14 +17,6 @@ def weight_init(m):
             m.bias.data.fill_(0.)
 
 
-def prepare_network_input_data(X, edge_index, edge_features):
-    X = torch.nan_to_num(X, nan=0.0)
-    X = X[:, list(map(GNNDataset.node_feature_dict.get, GNNDataset.model_feature_keys))]
-
-    edge_features = torch.nan_to_num(edge_features, nan=0.0)
-    return torch.unsqueeze(X, dim=0).float(), torch.unsqueeze(edge_index, dim=0).float(), torch.unsqueeze(edge_features, dim=0).float()
-
-
 class EarlyStopping:
     def __init__(self, patience=5, delta=0):
         self.patience = patience
@@ -144,16 +136,11 @@ class GNN_TrackLinkingNet(nn.Module):
         if data.edge_index.shape[1] != data.edges_features.shape[0]:
             return None
 
-        X, edge_index, edge_features = prepare_network_input_data(data.x, data.edge_index, data.edges_features)
-        X = torch.squeeze(X, dim=0)
-        N = X.shape[0]
+        X = data.x
+        edge_features = data.edge_features
+        edge_index = data.edge_index
 
-        X_norm = torch.zeros_like(X)
-        epsilon = 10e-5 * torch.ones(X.shape, device=device)
-        std = X.std(dim=0, unbiased=False) + epsilon
-        X_norm = (X - X.mean(dim=0)) / std
-
-        edge_features = torch.squeeze(edge_features, dim=0)
+        # edge_features = torch.squeeze(edge_features, dim=0)
         epsilon = 10e-5 * torch.ones(edge_features.shape, device=device)
         std = edge_features.std(dim=0, unbiased=False) + epsilon
         edge_features_norm = (edge_features - edge_features.mean(dim=0)) / std
@@ -163,15 +150,14 @@ class GNN_TrackLinkingNet(nn.Module):
         alpha_rev = self.attention_reverse(edge_features_NN)
         alpha = torch.cat([alpha_dir, alpha_rev], dim=0).float()
 
-        edge_index = torch.squeeze(edge_index, dim=0).long()
         E = edge_index.shape[1]
         src, dst = edge_index
 
         # Feature transformation to latent space
-        node_emb = self.inputnetwork(X_norm)
+        node_emb = self.inputnetwork(X)
 
-        ind_p1 = torch.cat((torch.arange(0, N, dtype=int, device=device), src, dst))
-        ind_p2 = torch.cat((torch.arange(0, N, dtype=int, device=device), dst, src))
+        ind_p1 = torch.cat((torch.arange(0, X.shape[0], dtype=int, device=device), src, dst))
+        ind_p2 = torch.cat((torch.arange(0, X.shape[0], dtype=int, device=device), dst, src))
 
         # Niters x EdgeConv block
         for graphconv in self.graphconvs:
