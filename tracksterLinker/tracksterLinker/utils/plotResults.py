@@ -45,9 +45,10 @@ def classification_threshold_scores(scores, ground_truth, ax, threshold_step=0.0
         ax.set_title("Accuracy / TPR / TNR / F1 based on the classification threshold value", fontsize=16)
         ax.legend()
 
-        if save and output_folder is not None and filename is not None:
-            ax.savefig(f"{output_folder}/{filename}", dpi=300,
-                       bbox_inches='tight', transparent=True)
+        # Save Data not Image
+        # if save and output_folder is not None and filename is not None:
+        #     ax.savefig(f"{output_folder}/{filename}_class_threshold.png", dpi=300,
+        #                bbox_inches='tight', transparent=True)
 
     return ACC, TNR, TPR, F1, thresholds
 
@@ -71,10 +72,10 @@ def plot_validation_results(pred, y, save=True, output_folder=None, file_suffix=
 
     print_acc_scores(pred, y, best_threshold)
 
-    # TODO: Save plots and data
-    # if save and output_folder is not None and file_suffix is not None:
-    #     ax.savefig(f"{output_folder}/{file_suffix}.png", dpi=300,
-    #                bbox_inches='tight', transparent=True)
+    # TODO: Save data
+    if save and output_folder is not None and file_suffix is not None:
+        ax.savefig(f"{output_folder}/{file_suffix}_validation_results.png", dpi=300,
+                   bbox_inches='tight', transparent=True)
 
 
 def get_model_prediction(model, testLoader, prepare_network_input_data=None,
