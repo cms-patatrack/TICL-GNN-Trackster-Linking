@@ -3,10 +3,8 @@ from glob import glob
 
 import uproot as uproot
 import awkward as ak
-import cupy as cp
 import numpy as np
 
-from sklearn.preprocessing import MaxAbsScaler
 import joblib
 from tqdm import tqdm
 
@@ -102,7 +100,9 @@ def download_event(id, file, raw_dir):
     torch.save(data, osp.join(raw_dir, f'data_id_{id}.pt'))
 
 
-def process_event(idx, event, model_feature_keys, node_feature_dict, processed_dir, skeleton_features, test, scaler):
+def process_event(idx, event, model_feature_keys, node_feature_dict, processed_dir, skeleton_features):
+    import cupy as cp
+
     nTracksters = len(event["barycenter_x"])
 
     # Skip if not multiple tracksters
@@ -111,9 +111,6 @@ def process_event(idx, event, model_feature_keys, node_feature_dict, processed_d
 
     # build feature list
     features = cp.stack([ak.to_cupy(event[field]) for field in model_feature_keys], axis=1)
-
-    if test:
-        features = scaler.transform(features)
 
     # Create base graph from geometrical graph = [[], []]
     targets = ak.ravel(event.outer)
@@ -141,15 +138,16 @@ def process_event(idx, event, model_feature_keys, node_feature_dict, processed_d
 
     # Read data from `raw_path`.
     data = Data(
-        x=torch.utils.dlpack.from_dlpack(features.toDlpack()),
-        num_nodes=nTracksters, edge_index=torch.utils.dlpack.from_dlpack(edges.toDlpack()),
-        edges_features=torch.utils.dlpack.from_dlpack(edge_features.toDlpack()),
+        x=torch.utils.dlpack.from_dlpack(features.toDlpack()).float(),
+        num_nodes=nTracksters, 
+        edge_index=torch.utils.dlpack.from_dlpack(edges.toDlpack()).long(),
+        edge_features=torch.utils.dlpack.from_dlpack(edge_features.toDlpack()).float(),
         y=torch.utils.dlpack.from_dlpack(y.toDlpack()),
         cluster=ak.to_torch(event.y),
         roots=ak.to_torch(event.roots))
 
     torch.save(data, osp.join(processed_dir, f'data_{idx}.pt'))
-    return features
+    return features.max(axis=0)
 
 
 class GNNDataset(Dataset):
@@ -157,14 +155,15 @@ class GNNDataset(Dataset):
                          "sigmaPCA1", "sigmaPCA2", "sigmaPCA3", "num_LCs", "num_hits", "raw_energy", "raw_em_energy", "photon_prob", "electron_prob", "muon_prob",
                          "neutral_pion_prob", "charged_hadron_prob", "neutral_hadron_prob", "z_min", "z_max", "LC_density", "trackster_density", "time"]
     node_feature_dict = {k: v for v, k in enumerate(node_feature_keys)}
-    model_feature_keys = node_feature_keys[:-1]
+    model_feature_keys = node_feature_keys
 
     # Skeleton Features computional intensive -> Turn off if not needed
-    def __init__(self, root, histo_path, transform=None, test=False, skeleton_features=False, pre_transform=None, pre_filter=None, scaler=MaxAbsScaler(),
-                 device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
+    def __init__(self, root, histo_path, transform=None, test=False, skeleton_features=False, pre_transform=None, pre_filter=None, scaler=None,
+                 num_workers=24, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
         self.test = test
         self.skeleton_features = skeleton_features
         self.device = device
+        self.num_workers = num_workers
 
         self.histo_path = histo_path
         self.root_dir = root
@@ -197,30 +196,37 @@ class GNNDataset(Dataset):
 
     def process(self):
         idx = 0
+
         with ProcessPoolExecutor(max_workers=self.num_workers) as executor:
             for raw_path in tqdm(self.raw_paths):
-                print(raw_path)
-                run = ak.to_backend(torch.load(raw_path, weights_only=False), "cuda")
+                run = torch.load(raw_path, weights_only=False)
                 nEvents = len(run)
-
-                futures = [executor.submit(process_event, run[event], self.model_feature_keys, self.node_feature_dict,
-                                           self.processed_dir, self.skeleton_features, self.test, self.scaler) for event in range(nEvents)]
-
+                process_event(0, run[0], self.model_feature_keys, self.node_feature_dict, self.processed_dir, self.skeleton_features)
+                futures = [executor.submit(process_event, idx+event, run[event], self.model_feature_keys, self.node_feature_dict,
+                                           self.processed_dir, self.skeleton_features) for event in range(nEvents)]
+                idx += nEvents
                 for future in as_completed(futures):
-                    features = future.result()
-
-                    if (not self.test):
-                        self.scaler.partial_fit(features)
-
-                # process_event(idx, run, event, self.node_feature_keys, self.node_feature_dict, self.processed_dir, self.skeleton_features)
+                    max_features = future.result()
+                    if (not self.test and max_features is not None):
+                        if self.scaler is not None:
+                            self.scaler = cp.maximum(self.scaler, max_features)
+                        else:
+                            self.scaler = max_features
 
         if (not self.test):
-            joblib.dump(self.scaler, osp.join(self.root_dir, "scaler.joblib"))
+            self.scaler = torch.utils.dlpack.from_dlpack(self.scaler.toDlpack())
+            torch.save(self.scaler, osp.join(self.root_dir, "scaler.pt"))
 
-        for file in self.processed_file_names:
+        idx = 0
+        for i, file in tqdm(enumerate(self.processed_file_names), desc="Normalizing..."):
             sample = torch.load(file, weights_only=False)
-            sample.x = self.scaler.transform(sample.x)
-            torch.save(sample, file)
+            sample.x /= self.scaler
+            
+            if (i != idx):
+                os.remove(file)
+
+            torch.save(sample, osp.join(self.processed_dir, f"data_{idx}.pt"))
+            idx += 1
 
     def len(self):
         return len(self.processed_file_names)

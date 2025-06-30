@@ -14,9 +14,10 @@ def calc_trackster_density(NTracksters):
 
 
 def calc_group_score(edges, y, score, shared_energy, raw_energy):
-    res = cp.round((1-ak.to_cupy(score[edges[0]])) * ak.to_cupy(shared_energy[edges[0]]) / ak.to_cupy(raw_energy[edges[0]]) +
-        (1-ak.to_cupy(score[edges[1]])) * ak.to_cupy(shared_energy[edges[1]]) / ak.to_cupy(raw_energy[edges[1]]), 3)/2
-
+    res = cp.round((1-ak.to_cupy(score)[edges[0]]) * ak.to_cupy(shared_energy)[edges[0]] / ak.to_cupy(raw_energy)[edges[0]] +
+        (1-ak.to_cupy(score)[edges[1]]) * ak.to_cupy(shared_energy)[edges[1]] / ak.to_cupy(raw_energy)[edges[1]], 3)/2
+    
+    y = ak.to_cupy(y)
     res[y[edges[0]] != y[edges[1]]] = 0
     res[y[edges[0]] == -1] = 0
     res[y[edges[1]] == -1] = 0

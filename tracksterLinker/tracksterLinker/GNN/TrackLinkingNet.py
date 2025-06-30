@@ -133,7 +133,7 @@ class GNN_TrackLinkingNet(nn.Module):
         )
 
     def forward(self, data, return_emb=False, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
-        if data.edge_index.shape[1] != data.edges_features.shape[0]:
+        if data.edge_index.shape[1] != data.edge_features.shape[0]:
             return None
 
         X = data.x

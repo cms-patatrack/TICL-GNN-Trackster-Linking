@@ -41,7 +41,7 @@ print(f"Using device: {device}")
 epochs = 200
 
 model = GNN_TrackLinkingNet(input_dim=len(dataset_training.model_feature_keys),
-                            edge_feature_dim=dataset_training.get(0).edges_features.shape[1],
+                            edge_feature_dim=dataset_training.get(0).edge_features.shape[1],
                             edge_hidden_dim=16, hidden_dim=16, weighted_aggr=True,
                             dropout=0.3)
 model = model.to(device)
