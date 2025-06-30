@@ -28,7 +28,7 @@ def moving_average(a, n=3):
     return ret
 
 
-def plot_loss(train_loss_history, val_loss_history, ax=None, n=8):
+def plot_loss(train_loss_history, val_loss_history, ax=None, n=8, save=False, output_folder=None, filename=None):
     epochs = len(train_loss_history)
     if ax is None:
         fig, ax = plt.subplots(1, 1)
@@ -45,6 +45,11 @@ def plot_loss(train_loss_history, val_loss_history, ax=None, n=8):
     ax.set_xlabel("Epochs", fontsize=14)
     ax.set_title("Training and Validation Loss", fontsize=14)
     ax.legend()
+
+    if (save and output_folder is not None and filename is not None):
+        print("save plot loss")
+        path = os.path.join(output_folder, filename)
+        plt.savefig(path)
 
 
 def plot_data_distribution(X, keys):

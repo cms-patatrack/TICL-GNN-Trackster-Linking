@@ -36,7 +36,6 @@ def test(model, loader, epoch, loss_obj=FocalLoss(), device=torch.device('cuda' 
         model.eval()
         pred, y = [], []
         val_loss = 0.0
-        print("Validation step")
 
         for sample in tqdm(loader, desc=f"Validation Epoch {epoch}"):
             nn_pred = model(sample, device=device)

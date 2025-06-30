@@ -57,7 +57,7 @@ def plot_validation_results(pred, y, save=True, output_folder=None, file_suffix=
     save = save and output_folder is not None and file_suffix is not None
 
     if ax is None:
-        print("crease")
+        print("create")
         fig, ax = plt.subplots(6, 2)
         fig.set_figheight(30)
         fig.set_figwidth(40)
@@ -72,9 +72,9 @@ def plot_validation_results(pred, y, save=True, output_folder=None, file_suffix=
 
     print_acc_scores(pred, y, best_threshold)
 
-    # TODO: Save data
-    if save and output_folder is not None and file_suffix is not None:
-        ax.savefig(f"{output_folder}/{file_suffix}_validation_results.png", dpi=300,
+    # TODO: Save data, even with ax provided
+    if save and fig is not None and output_folder is not None and file_suffix is not None:
+        fig.savefig(f"{output_folder}/{file_suffix}_validation_results.png", dpi=300,
                    bbox_inches='tight', transparent=True)
 
 
