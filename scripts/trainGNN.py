@@ -1,11 +1,11 @@
 import os.path as osp
 import os
 from datetime import datetime
-import tqdm
 
 import torch
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch_geometric.loader.dataloader import DataLoader
+import matplotlib.pyplot as plt
 
 from tracksterLinker.datasets.GNNDataset import GNNDataset
 from tracksterLinker.GNN.TrackLinkingNet import GNN_TrackLinkingNet, FocalLoss, EarlyStopping, weight_init
@@ -90,3 +90,4 @@ for epoch in range(start_epoch, epochs):
         break
 
     scheduler.step()
+    plt.close()
