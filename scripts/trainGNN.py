@@ -14,6 +14,20 @@ from tracksterLinker.utils.dataStatistics import *
 from tracksterLinker.utils.graphUtils import print_graph_statistics
 from tracksterLinker.utils.plotResults import *
 
+import pickle
+def deep_check(obj, path="model"):
+    try:
+        pickle.dumps(obj)
+        return []
+    except Exception:
+        errors = []
+        if hasattr(obj, '__dict__'):
+            for k, v in obj.__dict__.items():
+                errors.extend(deep_check(v, f"{path}.{k}"))
+        else:
+            errors.append((path, type(obj)))
+            return errors
+
 
 load_weights = True
 model_name = "model_date_2025-06-30.pt"
@@ -78,14 +92,14 @@ for epoch in range(start_epoch, epochs):
 
     plot_loss(train_loss_hist, val_loss_hist, save=True, output_folder=model_folder, filename=f"model_date_{date}_loss_epochs")
     plot_validation_results(pred, y, save=True, output_folder=model_folder,  file_suffix=f"epoch_{epoch+1}_date_{date}")
-    save_model(model, epoch, optimizer, loss, val_loss, output_folder=model_folder, filename=f"model_date_{date}")
+    save_model(model, epoch, optimizer, loss, val_loss, output_folder=model_folder, filename=f"model_{date}_epoch_{epoch}", dummy_input=dataset_training.get(0))
     early_stopping(model, val_loss)
 
     if early_stopping.early_stop:
         print(f"Early stopping after {epoch+1} epochs")
         early_stopping.load_best_model(model)
 
-        save_model(model, epoch, optimizer, loss, val_loss, output_folder=model_folder, filename=f"model_{date}_final_loss_{-early_stopping.best_score:.4f}")
+        save_model(model, epoch, optimizer, loss, val_loss, output_folder=model_folder, filename=f"model_{date}_final_loss_{-early_stopping.best_score:.4f}", dummy_input=dataset_training.get(0))
         break
 
     scheduler.step()

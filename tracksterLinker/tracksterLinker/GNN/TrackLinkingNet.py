@@ -131,8 +131,8 @@ class GNN_TrackLinkingNet(nn.Module):
         )
 
     def forward(self, X, edge_features, edge_index, return_emb=False, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
-        if edge_index.shape[1] != edge_features.shape[0]:
-            return None
+        #if edge_index.shape[1] != edge_features.shape[0]:
+        #    return None
 
         # edge_features = torch.squeeze(edge_features, dim=0)
         epsilon = 10e-5 * torch.ones(edge_features.shape, device=device)
@@ -145,19 +145,18 @@ class GNN_TrackLinkingNet(nn.Module):
         alpha = torch.cat([alpha_dir, alpha_rev], dim=0).float()
 
         E = edge_index.shape[1]
-        src, dst = edge_index
 
         # Feature transformation to latent space
         node_emb = self.inputnetwork(X)
 
-        ind_p1 = torch.cat((torch.arange(0, X.shape[0], dtype=int, device=device), src, dst))
-        ind_p2 = torch.cat((torch.arange(0, X.shape[0], dtype=int, device=device), dst, src))
+        ind_p1 = torch.cat((torch.arange(0, X.shape[0], dtype=int, device=device), edge_index[0], edge_index[1]))
+        ind_p2 = torch.cat((torch.arange(0, X.shape[0], dtype=int, device=device), edge_index[1], edge_index[0]))
 
         # Niters x EdgeConv block
         for graphconv in self.graphconvs:
             node_emb = graphconv(node_emb, ind_p1, ind_p2, alpha=alpha, device=device)
 
-        edge_emb = torch.cat([node_emb[src], node_emb[dst], edge_features_NN, edge_features_norm], dim=-1)
+        edge_emb = torch.cat([node_emb[edge_index[0]], node_emb[edge_index[1]], edge_features_NN, edge_features_norm], dim=-1)
 
         pred = self.edgenetwork(edge_emb).squeeze(-1)
         if not return_emb:

@@ -8,7 +8,7 @@ import seaborn as sns
 from sklearn.metrics import confusion_matrix, f1_score
 
 
-def save_model(model, epoch, optimizer, loss, val_loss, output_folder, filename):
+def save_model(model, epoch, optimizer, loss, val_loss, output_folder, filename, dummy_input=None):
     path = os.path.join(output_folder, f"{filename}")
 
     print(f">>> Saving model to {path}")
@@ -18,7 +18,16 @@ def save_model(model, epoch, optimizer, loss, val_loss, output_folder, filename)
                 'training_loss': loss,
                 'validation_loss': val_loss
                 }, f"{path}_epoch_{epoch}_dict.pt")
-    torch.save(model, f"{path}_pickle.pt")
+    
+    if (dummy_input is not None):
+        model.eval()
+        test_input = (dummy_input.x, dummy_input.edge_features, dummy_input.edge_index)
+        traced_model = torch.jit.trace(model, test_input)
+        
+        if (torch.allclose(model(*test_input), traced_model(*test_input), atol=1e-6)):
+            traced_model.save(f"{path}_traced.pt")
+    else:
+        torch.save(model, f"{path}_pickle.pt")
 
 
 def moving_average(a, n=3):
