@@ -9,7 +9,7 @@ from sklearn.metrics import confusion_matrix, f1_score
 
 
 def save_model(model, epoch, optimizer, loss, val_loss, output_folder, filename):
-    path = os.path.join(output_folder, filename)
+    path = os.path.join(output_folder, f"{filename}")
 
     print(f">>> Saving model to {path}")
     torch.save({'epoch': epoch,
@@ -17,7 +17,8 @@ def save_model(model, epoch, optimizer, loss, val_loss, output_folder, filename)
                 'optimizer_state_dict': optimizer.state_dict(),
                 'training_loss': loss,
                 'validation_loss': val_loss
-                }, path)
+                }, f"{path}_epoch_{epoch}_dict.pt")
+    torch.save(model, f"{path}_pickle.pt")
 
 
 def moving_average(a, n=3):

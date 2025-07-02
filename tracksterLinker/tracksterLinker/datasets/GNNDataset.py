@@ -16,10 +16,9 @@ from tracksterLinker.utils.dataUtils import *
 
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
-# use this to load the tree if some of file.keys() are duplicates ending with different numbers
-
 
 def load_branch_with_highest_cycle(file, branch_name):
+    # use this to load the tree if some of file.keys() are duplicates ending with different numbers
 
     # Get all keys in the file
     all_keys = file.keys()

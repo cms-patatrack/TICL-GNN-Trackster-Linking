@@ -132,13 +132,9 @@ class GNN_TrackLinkingNet(nn.Module):
             nn.Sigmoid()
         )
 
-    def forward(self, data, return_emb=False, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
-        if data.edge_index.shape[1] != data.edge_features.shape[0]:
+    def forward(self, X, edge_features, edge_index, return_emb=False, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
+        if edge_index.shape[1] != edge_features.shape[0]:
             return None
-
-        X = data.x
-        edge_features = data.edge_features
-        edge_index = data.edge_index
 
         # edge_features = torch.squeeze(edge_features, dim=0)
         epsilon = 10e-5 * torch.ones(edge_features.shape, device=device)

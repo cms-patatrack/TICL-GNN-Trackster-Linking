@@ -15,8 +15,8 @@ from tracksterLinker.utils.graphUtils import print_graph_statistics
 from tracksterLinker.utils.plotResults import *
 
 
-load_weights = False
-model_name = ""
+load_weights = True
+model_name = "model_date_2025-06-30.pt"
 
 base_folder = "/home/czeh"
 model_folder = osp.join(base_folder, "GNN/model")
