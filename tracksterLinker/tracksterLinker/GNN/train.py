@@ -15,9 +15,9 @@ def train(model, opt, loader, epoch, emb_out=False, loss_obj=FocalLoss(), device
         opt.zero_grad()
 
         if emb_out:
-            z, _ = model(sample.X, sample.edge_features, sample.edge_index, device=device, emb_out=True)
+            z, _ = model(sample.x, sample.edge_features, sample.edge_index, device=device, emb_out=True)
         else:
-            z = model(sample, device=device)
+            z = model(sample.x, sample.edge_features, sample.edge_index, device=device)
 
         # compute the loss
         loss = loss_obj(z, sample.y.float())
@@ -38,7 +38,7 @@ def test(model, loader, epoch, loss_obj=FocalLoss(), device=torch.device('cuda' 
         val_loss = 0.0
 
         for sample in tqdm(loader, desc=f"Validation Epoch {epoch}"):
-            nn_pred = model(sample.X, sample.edge_features, sample.edge_index, device=device)
+            nn_pred = model(sample.x, sample.edge_features, sample.edge_index, device=device)
             pred += nn_pred.tolist()
             y += sample.y.tolist()
             val_loss += loss_obj(nn_pred, sample.y.float()).item()

@@ -62,7 +62,6 @@ if load_weights:
     optimizer.load_state_dict(weights["optimizer_state_dict"])
     start_epoch = weights["epoch"]
 
-
 train_loss_hist = []
 val_loss_hist = []
 date = f"{datetime.now():%Y-%m-%d}"
@@ -79,14 +78,14 @@ for epoch in range(start_epoch, epochs):
 
     plot_loss(train_loss_hist, val_loss_hist, save=True, output_folder=model_folder, filename=f"model_date_{date}_loss_epochs")
     plot_validation_results(pred, y, save=True, output_folder=model_folder,  file_suffix=f"epoch_{epoch+1}_date_{date}")
-    save_model(model, epoch, optimizer, loss, val_loss, output_folder=model_folder, filename=f"model_date_{date}.pt")
+    save_model(model, epoch, optimizer, loss, val_loss, output_folder=model_folder, filename=f"model_date_{date}")
     early_stopping(model, val_loss)
 
     if early_stopping.early_stop:
         print(f"Early stopping after {epoch+1} epochs")
         early_stopping.load_best_model(model)
 
-        save_model(model, epoch, optimizer, loss, val_loss, output_folder=model_folder, filename=f"model_date_{date}_final_loss_{-early_stopping.best_score:.4f}.pt")
+        save_model(model, epoch, optimizer, loss, val_loss, output_folder=model_folder, filename=f"model_{date}_final_loss_{-early_stopping.best_score:.4f}")
         break
 
     scheduler.step()

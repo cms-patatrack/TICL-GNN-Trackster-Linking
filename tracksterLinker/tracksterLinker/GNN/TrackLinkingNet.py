@@ -74,8 +74,6 @@ class GNN_TrackLinkingNet(nn.Module):
                  edge_feature_dim=12, edge_hidden_dim=16, weighted_aggr=True):
         super(GNN_TrackLinkingNet, self).__init__()
 
-        self.writer = SummaryWriter(f"tensorboard_runs/gnn_model")
-
         self.niters = niters
         self.input_dim = input_dim
         self.edge_feature_dim = edge_feature_dim
