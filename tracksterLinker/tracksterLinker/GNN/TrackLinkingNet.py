@@ -135,29 +135,22 @@ class GNN_TrackLinkingNet(nn.Module):
         #    return None
 
         # edge_features = torch.squeeze(edge_features, dim=0)
-        epsilon = 10e-5 * torch.ones(edge_features.shape, device=device)
-        std = edge_features.std(dim=0, unbiased=False) + epsilon
-        edge_features_norm = (edge_features - edge_features.mean(dim=0)) / std
-        edge_features_NN = self.edge_inputnetwork(edge_features_norm)
+        edge_features_NN = self.edge_inputnetwork(edge_features)
 
         alpha_dir = self.attention_direct(edge_features_NN)
         alpha_rev = self.attention_reverse(edge_features_NN)
         alpha = torch.cat([alpha_dir, alpha_rev], dim=0).float()
-
-        E = edge_index.shape[1]
-
         # Feature transformation to latent space
         node_emb = self.inputnetwork(X)
-
-        ind_p1 = torch.cat((torch.arange(0, X.shape[0], dtype=int, device=device), edge_index[0], edge_index[1]))
-        ind_p2 = torch.cat((torch.arange(0, X.shape[0], dtype=int, device=device), edge_index[1], edge_index[0]))
+        ind_p1 = torch.cat((torch.arange(0, X.shape[0], dtype=int, device=device), edge_index[:, 0], edge_index[:, 1]))
+        ind_p2 = torch.cat((torch.arange(0, X.shape[0], dtype=int, device=device), edge_index[:, 1], edge_index[:, 0]))
 
         # Niters x EdgeConv block
-        for graphconv in self.graphconvs:
+        for graphconv in self.graphconvs[:2]:
             node_emb = graphconv(node_emb, ind_p1, ind_p2, alpha=alpha, device=device)
-
-        edge_emb = torch.cat([node_emb[edge_index[0]], node_emb[edge_index[1]], edge_features_NN, edge_features_norm], dim=-1)
-
+        #node_emb = self.graphconvs[0](node_emb, ind_p1, ind_p2, alpha=alpha, device=device)
+       
+        edge_emb = torch.cat([node_emb[edge_index[:, 0]], node_emb[edge_index[:, 1]], edge_features_NN, edge_features], dim=-1)
         pred = self.edgenetwork(edge_emb).squeeze(-1)
         if not return_emb:
             return pred

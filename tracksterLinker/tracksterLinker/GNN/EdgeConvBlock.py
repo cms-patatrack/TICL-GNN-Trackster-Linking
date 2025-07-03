@@ -43,10 +43,11 @@ class EdgeConvBlock(nn.Module):
     def forward(self, features, ind_p1, ind_p2, alpha=None, device='cpu'):
         EDGE_EMB_p1 = features[ind_p1, :]
         EDGE_EMB_p2 = features[ind_p2, :] - EDGE_EMB_p1
+
         x = torch.cat((EDGE_EMB_p1, EDGE_EMB_p2), dim=1)
         N = features.shape[0]
         i = 0
-
+        
         for conv, act in zip(self.convs, self.acts):
             x = conv(x)
             if self.activation:

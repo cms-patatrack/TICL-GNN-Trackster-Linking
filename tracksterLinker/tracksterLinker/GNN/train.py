@@ -20,7 +20,8 @@ def train(model, opt, loader, epoch, emb_out=False, loss_obj=FocalLoss(), device
             z = model(sample.x, sample.edge_features, sample.edge_index, device=device)
 
         # compute the loss
-        loss = loss_obj(z, sample.y.float())
+        #print(z)
+        loss = loss_obj(z, sample.y)
 
         # back-propagate and update the weight
         loss.backward()

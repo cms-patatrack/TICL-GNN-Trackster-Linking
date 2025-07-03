@@ -77,8 +77,8 @@ def find_connected_components(graph, num_nodes):
                 queue = queue[1:]
 
                 # Get neighbors (treat as undirected)
-                out_neighbors = graph[1][graph[0] == root]
-                in_neighbors = graph[0][graph[1] == root]
+                out_neighbors = graph[:, 1][graph[:, 0] == root]
+                in_neighbors = graph[:, 0][graph[:, 1] == root]
                 neighbors = torch.cat((out_neighbors, in_neighbors))
 
                 unvisited = neighbors[~visited[neighbors]]

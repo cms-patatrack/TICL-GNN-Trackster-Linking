@@ -4,6 +4,7 @@ from glob import glob
 import uproot as uproot
 import awkward as ak
 import numpy as np
+import cupy as cp
 
 import joblib
 from tqdm import tqdm
@@ -101,12 +102,11 @@ def download_event(id, file, raw_dir):
 
 def process_event(idx, event, model_feature_keys, node_feature_dict, processed_dir, skeleton_features):
     import cupy as cp
-
     nTracksters = len(event["barycenter_x"])
 
     # Skip if not multiple tracksters
     if (nTracksters <= 1):
-        return
+        return None, None
 
     # build feature list
     features = cp.stack([ak.to_cupy(event[field]) for field in model_feature_keys], axis=1)
@@ -117,16 +117,16 @@ def process_event(idx, event, model_feature_keys, node_feature_dict, processed_d
     sources = ak.broadcast_arrays(sources, event.outer)[0]
     sources = ak.ravel(sources)
 
-    edges = cp.stack([ak.to_cupy(sources), ak.to_cupy(targets)])
-    if (edges.shape[1] < 2):
-        return
+    edges = cp.transpose(cp.stack([ak.to_cupy(sources), ak.to_cupy(targets)]))
+    if (edges.shape[0] < 2):
+        return None, None
 
     if skeleton_features:
-        edge_features = cp.zeros((len(edges[0, :]), 7), dtype='f')
+        edge_features = cp.zeros((len(edges[:, 0]), 7), dtype='f')
 
         edge_features[:, 5], edge_features[:, 6] = calc_min_max_skeleton_dist(nTracksters, edges, event["vertices"])
     else:
-        edge_features = cp.zeros((len(edges[0, :]), 5), dtype='f')
+        edge_features = cp.zeros((len(edges[:, 0]), 5), dtype='f')
     edge_features[:, 0] = calc_edge_difference(edges, features, node_feature_dict, key="raw_energy")
     edge_features[:, 1] = calc_edge_difference(edges, features, node_feature_dict, key="barycenter_z")
     edge_features[:, 2] = calc_transverse_plane_separation(edges, features, node_feature_dict)
@@ -141,12 +141,12 @@ def process_event(idx, event, model_feature_keys, node_feature_dict, processed_d
         num_nodes=nTracksters, 
         edge_index=torch.utils.dlpack.from_dlpack(edges.toDlpack()).long(),
         edge_features=torch.utils.dlpack.from_dlpack(edge_features.toDlpack()).float(),
-        y=torch.utils.dlpack.from_dlpack(y.toDlpack()),
+        y=torch.utils.dlpack.from_dlpack(y.toDlpack()).float(),
         cluster=ak.to_torch(event.y),
         roots=ak.to_torch(event.roots))
 
     torch.save(data, osp.join(processed_dir, f'data_{idx}.pt'))
-    return features.max(axis=0)
+    return features.max(axis=0), edge_features.max(axis=0)
 
 
 class GNNDataset(Dataset):
@@ -157,7 +157,7 @@ class GNNDataset(Dataset):
     model_feature_keys = node_feature_keys
 
     # Skeleton Features computional intensive -> Turn off if not needed
-    def __init__(self, root, histo_path, transform=None, test=False, skeleton_features=False, pre_transform=None, pre_filter=None, scaler=None,
+    def __init__(self, root, histo_path, transform=None, test=False, skeleton_features=False, pre_transform=None, pre_filter=None, edge_scaler=None, node_scaler=None,
                  num_workers=24, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
         self.test = test
         self.skeleton_features = skeleton_features
@@ -167,7 +167,8 @@ class GNNDataset(Dataset):
         self.histo_path = histo_path
         self.root_dir = root
 
-        self.scaler = scaler
+        self.node_scaler = node_scaler
+        self.edge_scaler = edge_scaler
 
         super().__init__(root, transform, pre_transform, pre_filter)
 
@@ -205,21 +206,26 @@ class GNNDataset(Dataset):
                                            self.processed_dir, self.skeleton_features) for event in range(nEvents)]
                 idx += nEvents
                 for future in as_completed(futures):
-                    max_features = future.result()
+                    max_features, max_edge_features = future.result()
                     if (not self.test and max_features is not None):
-                        if self.scaler is not None:
-                            self.scaler = cp.maximum(self.scaler, max_features)
+                        if self.node_scaler is not None:
+                            self.node_scaler = cp.maximum(self.node_scaler, max_features)
+                            self.edge_scaler = cp.maximum(self.edge_scaler, max_edge_features)
                         else:
-                            self.scaler = max_features
+                            self.node_scaler = max_features
+                            self.edge_scaler = max_edge_features
 
         if (not self.test):
-            self.scaler = torch.utils.dlpack.from_dlpack(self.scaler.toDlpack())
-            torch.save(self.scaler, osp.join(self.root_dir, "scaler.pt"))
+            self.node_scaler = torch.utils.dlpack.from_dlpack(self.node_scaler.toDlpack())
+            self.edge_scaler = torch.utils.dlpack.from_dlpack(self.edge_scaler.toDlpack())
+            torch.save(self.node_scaler, osp.join(self.root_dir, "node_scaler.pt"))
+            torch.save(self.edge_scaler, osp.join(self.root_dir, "edge_scaler.pt"))
 
         idx = 0
         for i, file in tqdm(enumerate(self.processed_file_names), desc="Normalizing..."):
             sample = torch.load(file, weights_only=False)
-            sample.x /= self.scaler
+            sample.x /= self.node_scaler
+            #sample.edge_features /= self.edge_scaler
             
             if (i != idx):
                 os.remove(file)

@@ -16,7 +16,7 @@ if __name__ == "__main__":
     data_folder_test = osp.join(base_folder, "GNN/dataset_test")
 
     dataset_training = GNNDataset(data_folder_training, hist_folder)
-    dataset_test = GNNDataset(data_folder_test, hist_folder, test=True, scaler=dataset_training.scaler)
+    dataset_test = GNNDataset(data_folder_test, hist_folder, test=True, node_scaler=dataset_training.node_scaler, edge_scaler=dataset_training.edge_scaler)
 
     print("Training Dataset done. Statistics:")
     print_graph_statistics(dataset_training)

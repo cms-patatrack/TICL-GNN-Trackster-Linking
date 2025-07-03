@@ -14,22 +14,8 @@ from tracksterLinker.utils.dataStatistics import *
 from tracksterLinker.utils.graphUtils import print_graph_statistics
 from tracksterLinker.utils.plotResults import *
 
-import pickle
-def deep_check(obj, path="model"):
-    try:
-        pickle.dumps(obj)
-        return []
-    except Exception:
-        errors = []
-        if hasattr(obj, '__dict__'):
-            for k, v in obj.__dict__.items():
-                errors.extend(deep_check(v, f"{path}.{k}"))
-        else:
-            errors.append((path, type(obj)))
-            return errors
 
-
-load_weights = True
+load_weights = False
 model_name = "model_date_2025-06-30.pt"
 
 base_folder = "/home/czeh"
