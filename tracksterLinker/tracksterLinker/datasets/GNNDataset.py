@@ -146,7 +146,7 @@ def process_event(idx, event, model_feature_keys, node_feature_dict, processed_d
         roots=ak.to_torch(event.roots))
 
     torch.save(data, osp.join(processed_dir, f'data_{idx}.pt'))
-    return features.max(axis=0), edge_features.max(axis=0)
+    return torch.max(torch.abs(data.x), axis=0).values, torch.max(data.edge_features, axis=0).values
 
 
 class GNNDataset(Dataset):
@@ -225,7 +225,7 @@ class GNNDataset(Dataset):
         for i, file in tqdm(enumerate(self.processed_file_names), desc="Normalizing..."):
             sample = torch.load(file, weights_only=False)
             sample.x /= self.node_scaler
-            #sample.edge_features /= self.edge_scaler
+            sample.edge_features = (sample.edge_features + 10e-5)/ self.edge_scaler
             
             if (i != idx):
                 os.remove(file)

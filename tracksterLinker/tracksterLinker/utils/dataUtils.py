@@ -66,7 +66,7 @@ def calc_spatial_compatibility(edges, features, feature_dict):
 
 def calc_transverse_plane_separation(edges, features, feature_dict):
     plane = [feature_dict["barycenter_x"], feature_dict["barycenter_y"]]
-    return cp.linalg.norm(features[cp.ix_(edges[:, 0], plane)] - features[cp.ix_(edges[:, 0], plane)], axis=1)
+    return cp.linalg.norm(features[cp.ix_(edges[:, 1], plane)] - features[cp.ix_(edges[:, 0], plane)], axis=1)
 
 
 def calc_edge_difference(edges, features, feature_dict, key=None):
