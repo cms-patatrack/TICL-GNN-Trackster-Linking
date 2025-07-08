@@ -71,13 +71,25 @@ class FocalLoss(nn.Module):
 
 class GNN_TrackLinkingNet(nn.Module):
     def __init__(self, input_dim=19, hidden_dim=16, output_dim=1, niters=2, dropout=0.2,
-                 edge_feature_dim=12, edge_hidden_dim=16, weighted_aggr=True):
+                 edge_feature_dim=12, edge_hidden_dim=16, weighted_aggr=True,
+                 node_scaler=None, edge_scaler=None):
         super(GNN_TrackLinkingNet, self).__init__()
 
         self.niters = niters
         self.input_dim = input_dim
         self.edge_feature_dim = edge_feature_dim
         self.weighted_aggr = weighted_aggr
+
+        if (node_scaler is not None):
+            self.node_scaler = node_scaler
+        else:
+            self.node_scaler = torch.ones(input_dim)
+
+
+        if (edge_scaler is not None):
+            self.edge_scaler = edge_scaler
+        else:
+            self.node_scaler = torch.ones(edge_feature_dim)
 
         # Feature transformation to latent space
         self.inputnetwork = nn.Sequential(
@@ -131,10 +143,9 @@ class GNN_TrackLinkingNet(nn.Module):
         )
 
     def forward(self, X, edge_features, edge_index, return_emb=False, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
-        #if edge_index.shape[1] != edge_features.shape[0]:
-        #    return None
 
-        # edge_features = torch.squeeze(edge_features, dim=0)
+        edge_features/= (edge_features + 10e-5) / self.edge_scaler
+        X /= self.node_scaler
         edge_features_NN = self.edge_inputnetwork(edge_features)
 
         alpha_dir = self.attention_direct(edge_features_NN)
@@ -151,7 +162,7 @@ class GNN_TrackLinkingNet(nn.Module):
         #node_emb = self.graphconvs[0](node_emb, ind_p1, ind_p2, alpha=alpha, device=device)
        
         edge_emb = torch.cat([node_emb[edge_index[:, 0]], node_emb[edge_index[:, 1]], edge_features_NN, edge_features], dim=-1)
-        pred = self.edgenetwork(edge_emb).squeeze(-1)
+        pred = self.edgenetwork(edge_emb)
         if not return_emb:
             return pred
         return pred, node_emb

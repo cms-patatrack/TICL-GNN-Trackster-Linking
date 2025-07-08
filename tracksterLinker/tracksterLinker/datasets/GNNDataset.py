@@ -167,9 +167,15 @@ class GNNDataset(Dataset):
         self.histo_path = histo_path
         self.root_dir = root
 
-        self.node_scaler = node_scaler
-        self.edge_scaler = edge_scaler
+        if (node_scaler is None and osp.isfile(osp.join(self.root_dir, "node_scaler.pt"))):
+            self.node_scaler = torch.load(osp.join(self.root_dir, "node_scaler.pt"))
+        else:
+            self.node_scaler = node_scaler
 
+        if (edge_scaler is None and osp.isfile(osp.join(self.root_dir, "edge_scaler.pt"))):
+            self.edge_scaler = torch.load(osp.join(self.root_dir, "edge_scaler.pt"))
+        else:
+            self.edge_scaler = edge_scaler
         super().__init__(root, transform, pre_transform, pre_filter)
 
     @property
@@ -209,29 +215,15 @@ class GNNDataset(Dataset):
                     max_features, max_edge_features = future.result()
                     if (not self.test and max_features is not None):
                         if self.node_scaler is not None:
-                            self.node_scaler = cp.maximum(self.node_scaler, max_features)
-                            self.edge_scaler = cp.maximum(self.edge_scaler, max_edge_features)
+                            self.node_scaler = torch.maximum(self.node_scaler, max_features)
+                            self.edge_scaler = torch.maximum(self.edge_scaler, max_edge_features)
                         else:
                             self.node_scaler = max_features
                             self.edge_scaler = max_edge_features
 
         if (not self.test):
-            self.node_scaler = torch.utils.dlpack.from_dlpack(self.node_scaler.toDlpack())
-            self.edge_scaler = torch.utils.dlpack.from_dlpack(self.edge_scaler.toDlpack())
             torch.save(self.node_scaler, osp.join(self.root_dir, "node_scaler.pt"))
             torch.save(self.edge_scaler, osp.join(self.root_dir, "edge_scaler.pt"))
-
-        idx = 0
-        for i, file in tqdm(enumerate(self.processed_file_names), desc="Normalizing..."):
-            sample = torch.load(file, weights_only=False)
-            sample.x /= self.node_scaler
-            sample.edge_features = (sample.edge_features + 10e-5)/ self.edge_scaler
-            
-            if (i != idx):
-                os.remove(file)
-
-            torch.save(sample, osp.join(self.processed_dir, f"data_{idx}.pt"))
-            idx += 1
 
     def len(self):
         return len(self.processed_file_names)
