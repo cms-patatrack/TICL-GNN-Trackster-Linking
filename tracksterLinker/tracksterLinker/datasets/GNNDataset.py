@@ -225,6 +225,16 @@ class GNNDataset(Dataset):
             torch.save(self.node_scaler, osp.join(self.root_dir, "node_scaler.pt"))
             torch.save(self.edge_scaler, osp.join(self.root_dir, "edge_scaler.pt"))
 
+        idx = 0
+        for i, file in tqdm(enumerate(self.processed_file_names), desc="Fixing holes"):
+            sample = torch.load(file, weights_only=False)
+
+            if (i != idx):
+                os.remove(file)
+            torch.save(sample, osp.join(self.processed_dir, f"data_{idx}.pt"))
+            idx += 1
+
+
     def len(self):
         return len(self.processed_file_names)
 

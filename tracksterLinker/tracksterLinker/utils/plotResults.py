@@ -5,9 +5,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 import torch
-from sklearn.metrics import confusion_matrix, roc_curve, auc, f1_score, balanced_accuracy_score
+from sklearn.metrics import confusion_matrix, roc_curve, auc, f1_score, balanced_accuracy_score, recall_score, precision_score
 from sklearn.utils.class_weight import compute_sample_weight
-from sklearn.metrics import class_likelihood_ratios, precision_recall_fscore_support
+from sklearn.metrics import class_likelihood_ratios, precision_recall_fscore_support, accuracy_score
 
 import seaborn as sn
 import mplhep as hep
@@ -18,31 +18,31 @@ plt.style.use(hep.style.CMS)
 
 
 # statistical analysis of prediction results
-def classification_threshold_scores(scores, ground_truth, ax, threshold_step=0.05, plot=True, save=False, output_folder=None, filename=None):
+def classification_threshold_scores(scores, ground_truth, ax, threshold_step=0.05, plot=True, save=False, output_folder=None, filename=None, weight=None):
     """
-    Plots and saves the figure of the dependancy of th eaccuracy, True Positive rate (TPR) and 
-    True Negative rate (TNR) on the value of the classification threshold.
+    Plots and saves the figure of the dependancy of th eaccuracy, True Positive rate (precision) and 
+    True Negative rate (recall) on the value of the classification threshold.
     """
     y = (ground_truth > 0).astype(int)
     thresholds = np.arange(0, 1 + threshold_step, threshold_step)
-    ACC, TNR, TPR, F1 = [], [], [], []
+    accuracy, recall, precision, F1 = [], [], [], []
     for threshold in thresholds:
-        prediction = scores > threshold
+        prediction = (scores > threshold).astype(int)
+        prec, rec, f1, support = precision_recall_fscore_support(y, prediction, sample_weight=weight, average='binary', pos_label=1, zero_division=0.0)
 
-        TN, FP, FN, TP = confusion_matrix(y, prediction).ravel()
-        ACC.append((TP+TN)/(TN + FP + FN + TP))
-        TNR.append(TN/(TN+FP))
-        TPR.append(TP/(TP+FN))
-        F1.append(f1_score(y, prediction))
+        accuracy.append(accuracy_score(y, prediction, sample_weight=weight))
+        recall.append(rec)
+        precision.append(prec)
+        F1.append(f1)
 
     # Saving and plotting the figure of the classification threshold plot
     if plot or save:
-        ax.plot(thresholds, ACC, 'go-', label='ACC', linewidth=2)
-        ax.plot(thresholds, TNR, 'bo-', label='TNR', linewidth=2)
-        ax.plot(thresholds, TPR, 'ro-', label='TPR', linewidth=2)
+        ax.plot(thresholds, accuracy, 'go-', label='accuracy', linewidth=2)
+        ax.plot(thresholds, recall, 'bo-', label='recall', linewidth=2)
+        ax.plot(thresholds, precision, 'ro-', label='precision', linewidth=2)
         ax.plot(thresholds, F1, 'mo-', label='F1', linewidth=2)
         ax.set_xlabel("Threshold", fontsize=15)
-        ax.set_title("Accuracy / TPR / TNR / F1 based on the classification threshold value", fontsize=16)
+        ax.set_title("Accuracy / precision / recall / F1 based on the classification threshold value", fontsize=16)
         ax.legend()
 
         # Save Data not Image
@@ -50,10 +50,14 @@ def classification_threshold_scores(scores, ground_truth, ax, threshold_step=0.0
         #     ax.savefig(f"{output_folder}/{filename}_class_threshold.png", dpi=300,
         #                bbox_inches='tight', transparent=True)
 
-    return ACC, TNR, TPR, F1, thresholds
+    return accuracy, recall, precision, F1, thresholds
 
+def calc_weights(indizes, features, feature_dict, name="raw_energy"):
+    feature_index = feature_dict[name]
+    weight = features[indizes[:, 0], feature_index] - features[indizes[:, 1], feature_index]
+    return weight 
 
-def plot_validation_results(pred, y, save=True, output_folder=None, file_suffix=None, ax=None):
+def plot_validation_results(pred, y, save=True, output_folder=None, file_suffix=None, ax=None, weight=None):
     save = save and output_folder is not None and file_suffix is not None
 
     if ax is None:
@@ -62,15 +66,14 @@ def plot_validation_results(pred, y, save=True, output_folder=None, file_suffix=
         fig.set_figheight(30)
         fig.set_figwidth(40)
 
-    _, TNR, TPR, _, thresholds = classification_threshold_scores(pred, y, ax[0, 0], threshold_step=0.05)
+    _, recall, precision, _, thresholds = classification_threshold_scores(pred, y, ax[0, 0], threshold_step=0.05, weight=weight)
     plot_confusion_matrix(pred, y, ax[2, :])
-
-    best_threshold = get_best_threshold(TNR, TPR, thresholds)
+    best_threshold = get_best_threshold(recall, precision, thresholds)
     plot_prediction_distribution(pred, y, ax[3:6, :], thres=best_threshold)
     plot_edge_distribution(pred, y, ax[1, :])
     plot_roc_curve(pred, y, ax[0, 1], best_threshold)
 
-    print_acc_scores(pred, y, best_threshold)
+    print_acc_scores(pred, y, best_threshold, weight=weight)
 
     # TODO: Save data, even with ax provided
     if save and fig is not None and output_folder is not None and file_suffix is not None:
@@ -103,14 +106,14 @@ def get_model_prediction(model, testLoader, prepare_network_input_data=None,
     return truth, predictions
 
 
-def get_best_threshold(TNR, TPR, thresholds, epsilon=0.02, default=0.65):
-    # Find the threshold for which TNR and TPR intersect
+def get_best_threshold(recall, precision, thresholds, epsilon=0.02, default=0.65):
+    # Find the threshold for which recall and precision intersect
 
     for i in range(len(thresholds)-1):
-        if abs(TNR[i] - TPR[i]) < epsilon:
+        if abs(recall[i] - precision[i]) < epsilon:
             return round(thresholds[i], 3)
 
-        if TNR[i] - TPR[i] < 0 and TNR[i+1] - TPR[i+1] >= epsilon:
+        if recall[i] - precision[i] < 0 and recall[i+1] - precision[i+1] >= epsilon:
             return round(0.5*(thresholds[i] + thresholds[i+1]), 3)
 
     print("Choose a default threshold...")
@@ -137,21 +140,19 @@ def plot_edge_distribution(pred, y, axes):
     axes[1].set_ylabel('Counts', fontsize=14)
 
 
-def print_acc_scores(pred, y, thres=0.65):
+def print_acc_scores(pred, y, thres=0.65, weight=None):
     pred_discrete = (pred > thres).astype(int)
     y_discrete = (y > 0).astype(int)
 
-    TN, FP, FN, TP = confusion_matrix(y_discrete, pred_discrete).ravel()
-    tot = TN + FP + FN + TP
-
+    prec, rec, f1, support = precision_recall_fscore_support(y_discrete, pred_discrete, sample_weight=weight, average='binary', pos_label=1, zero_division=0.0)
     print(f"Scores for Classification with Threshold: {thres}.")
-    print(f"F1 score: {f1_score(y_discrete, pred_discrete):.3f}")
-    print(f"Balanced Accuracy: {balanced_accuracy_score(y_discrete, pred_discrete):.3f}")
-    print(f"Accuracy: {(TP+TN)/tot:.3f}")
-    print(f"Precision: {TP/(TP+FP)*100:.4f}")
-    print(f"Recall: {TP/(TP+FN)*100:.4f}")
-    print(f"Negative predictive value: {TN/(TN+FN)*100:.4f}")
-    print(f"True negative rate: {TN/(TN+FP)*100:.4f}")
+    print(f"F1 score: {f1:.3f}")
+    print(f"Balanced Accuracy: {balanced_accuracy_score(y_discrete, pred_discrete, sample_weight=weight):.3f}")
+    print(f"Accuracy: {accuracy_score(y_discrete, pred_discrete, sample_weight=weight):.3f}")
+    print(f"Precision: {prec:.4f}")
+    print(f"Recall: {rec:.4f}")
+    print(f"Negative predictive value: {recall_score(y_discrete, pred_discrete, sample_weight=weight, pos_label=0, zero_division=0.0):.4f}")
+    print(f"True negative rate: {precision_score(y_discrete, pred_discrete, sample_weight=weight, pos_label=0, zero_division=0.0):.4f}")
 
     sample_weight = compute_sample_weight(class_weight='balanced', y=y_discrete)
     prec_w, rec_w, fscore_w, _ = precision_recall_fscore_support(y_discrete, pred_discrete, sample_weight=sample_weight)

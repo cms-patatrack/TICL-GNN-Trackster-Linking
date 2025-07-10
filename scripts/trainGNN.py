@@ -70,16 +70,15 @@ save_model(model, 0, optimizer, [], [], output_folder=model_folder, filename=f"m
 for epoch in range(start_epoch, epochs):
     print(f'Epoch: {epoch+1}')
 
-    loss = train(model, optimizer, train_dl, epoch+1, device=device, loss_obj=loss_obj)
-    break 
+    loss = train(model, optimizer, test_dl, epoch+1, device=device, loss_obj=loss_obj)
     train_loss_hist.append(loss)
 
-    val_loss, pred, y = test(model, test_dl, epoch+1, loss_obj=loss_obj, device=device)
+    val_loss, pred, y, weight = test(model, test_dl, epoch+1, loss_obj=loss_obj, device=device, weighted="raw_energy")
     val_loss_hist.append(val_loss)
     print(f'Training loss: {loss}, Validation loss: {val_loss}')
 
     plot_loss(train_loss_hist, val_loss_hist, save=True, output_folder=model_folder, filename=f"model_date_{date}_loss_epochs")
-    plot_validation_results(pred, y, save=True, output_folder=model_folder,  file_suffix=f"epoch_{epoch+1}_date_{date}")
+    plot_validation_results(pred, y, save=True, output_folder=model_folder, file_suffix=f"epoch_{epoch+1}_date_{date}", weight=weight)
     save_model(model, epoch, optimizer, train_loss_hist, val_loss_hist, output_folder=model_folder, filename=f"model_{date}", dummy_input=dataset_training.get(0))
     early_stopping(model, val_loss)
 

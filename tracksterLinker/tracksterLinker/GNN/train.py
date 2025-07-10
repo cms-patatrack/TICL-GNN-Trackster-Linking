@@ -4,7 +4,8 @@ import numpy as np
 import torch
 
 from tracksterLinker.GNN.TrackLinkingNet import FocalLoss
-
+from tracksterLinker.datasets.GNNDataset import GNNDataset
+from tracksterLinker.utils.plotResults import calc_weights 
 
 def train(model, opt, loader, epoch, emb_out=False, loss_obj=FocalLoss(), device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
 
@@ -32,18 +33,19 @@ def train(model, opt, loader, epoch, emb_out=False, loss_obj=FocalLoss(), device
     return float(epoch_loss)/len(loader)
 
 
-def test(model, loader, epoch, loss_obj=FocalLoss(), device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
+def test(model, loader, epoch, weighted="raw_energy", loss_obj=FocalLoss(), device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
 
     with torch.set_grad_enabled(False):
         model.eval()
-        pred, y = [], []
+        pred, y, weights = [], [], []
         val_loss = 0.0
 
         for sample in tqdm(loader, desc=f"Validation Epoch {epoch}"):
             nn_pred = model(sample.x, sample.edge_features, sample.edge_index, device=device)
             pred += nn_pred.squeeze(-1).tolist()
             y += sample.y.tolist()
-            val_loss += loss_obj(nn_pred, sample.y.float()).item()
+            weights += calc_weights(sample.edge_index, sample.x, GNNDataset.node_feature_dict, name=weighted).tolist()
+            val_loss += loss_obj(nn_pred.squeeze(-1), sample.y.float()).item()
 
         val_loss /= len(loader)
-    return val_loss, np.array(pred), np.array(y)
+    return val_loss, np.array(pred), np.array(y), np.array(weights)
