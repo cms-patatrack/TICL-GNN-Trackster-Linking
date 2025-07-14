@@ -15,7 +15,7 @@ from tracksterLinker.utils.graphUtils import print_graph_statistics
 from tracksterLinker.utils.plotResults import *
 
 
-load_weights = True
+load_weights = False
 model_name = "model_2025-07-04_epoch_27_epoch_27_dict.pt"
 
 base_folder = "/home/czeh"
@@ -70,7 +70,7 @@ save_model(model, 0, optimizer, [], [], output_folder=model_folder, filename=f"m
 for epoch in range(start_epoch, epochs):
     print(f'Epoch: {epoch+1}')
 
-    loss = train(model, optimizer, test_dl, epoch+1, device=device, loss_obj=loss_obj)
+    loss = train(model, optimizer, train_dl, epoch+1, device=device, loss_obj=loss_obj)
     train_loss_hist.append(loss)
 
     val_loss, pred, y, weight = test(model, test_dl, epoch+1, loss_obj=loss_obj, device=device, weighted="raw_energy")

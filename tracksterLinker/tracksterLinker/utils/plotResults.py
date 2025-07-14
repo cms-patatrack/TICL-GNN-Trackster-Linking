@@ -62,18 +62,21 @@ def plot_validation_results(pred, y, save=True, output_folder=None, file_suffix=
 
     if ax is None:
         print("create")
-        fig, ax = plt.subplots(6, 2)
+        fig, ax = plt.subplots(5, 2)
         fig.set_figheight(30)
         fig.set_figwidth(40)
 
+    # Plots without predictiohn threshold
     _, recall, precision, _, thresholds = classification_threshold_scores(pred, y, ax[0, 0], threshold_step=0.05, weight=weight)
-    plot_confusion_matrix(pred, y, ax[2, :])
-    best_threshold = get_best_threshold(recall, precision, thresholds)
-    plot_prediction_distribution(pred, y, ax[3:6, :], thres=best_threshold)
+    plot_roc_curve(pred, y, ax[0, 1], weight=weight)
     plot_edge_distribution(pred, y, ax[1, :])
-    plot_roc_curve(pred, y, ax[0, 1], best_threshold)
-
-    print_acc_scores(pred, y, best_threshold, weight=weight)
+    
+    # Plots with fixed threshold
+    best_threshold = get_best_threshold(recall, precision, thresholds)
+    plot_confusion_matrix(pred, y, ax[2, 0], thres=best_threshold)
+    plot_confusion_matrix(pred, y, ax[2, 1], thres=best_threshold, weight=weight)
+    plot_prediction_distribution(pred, y, ax[3:5, :], thres=best_threshold)
+    print_acc_scores(pred, y, thres=best_threshold, weight=weight)
 
     # TODO: Save data, even with ax provided
     if save and fig is not None and output_folder is not None and file_suffix is not None:
@@ -154,21 +157,14 @@ def print_acc_scores(pred, y, thres=0.65, weight=None):
     print(f"Negative predictive value: {recall_score(y_discrete, pred_discrete, sample_weight=weight, pos_label=0, zero_division=0.0):.4f}")
     print(f"True negative rate: {precision_score(y_discrete, pred_discrete, sample_weight=weight, pos_label=0, zero_division=0.0):.4f}")
 
-    sample_weight = compute_sample_weight(class_weight='balanced', y=y_discrete)
-    prec_w, rec_w, fscore_w, _ = precision_recall_fscore_support(y_discrete, pred_discrete, sample_weight=sample_weight)
-
-    print(f"Precision Weighted: {prec_w}")
-    print(f"Recall Weighted: {rec_w}")
-    print(f"F1 score Weighted: {fscore_w}")
-
-    pos_lr, neg_lr = class_likelihood_ratios(y_discrete, pred_discrete, raise_warning=False)
-    print(f"Positive Likelihood Ratio: {pos_lr}")
-    print(f"Negative Likelihood Ratio: {neg_lr}")
+    pos_lr, neg_lr = class_likelihood_ratios(y_discrete, pred_discrete, sample_weight=weight, raise_warning=False)
+    print(f"Positive Likelihood Ratio: {pos_lr}; x in [1.0, inf]; Higher is better; 1.0 means meaningless ML;")
+    print(f"Negative Likelihood Ratio: {neg_lr}; x in [0.0, 1.0]; Lower is better; 1.0 means menaingless ML;")
 
 
-def plot_roc_curve(pred, y, ax, thres=0.65):
+def plot_roc_curve(pred, y, ax, weight=None):
     y_discrete = (y > 0).astype(int)
-    fpr, tpr, _ = roc_curve(y_discrete, pred)
+    fpr, tpr, _ = roc_curve(y_discrete, pred, sample_weight=weight)
 
     ax.plot(fpr, tpr, color="darkorange", lw=2, label="ROC curve (area = %0.2f)" % auc(fpr, tpr))
     ax.plot([0, 1], [0, 1], color="navy", lw=2, linestyle="--")
@@ -176,30 +172,24 @@ def plot_roc_curve(pred, y, ax, thres=0.65):
     ax.set_ylim([0.0, 1.05])
     ax.set_xlabel("False Positive Rate")
     ax.set_ylabel("True Positive Rate")
-    ax.set_title(f"ROC. Threshold: {thres}", fontsize=14)
+    ax.set_title(f"ROC", fontsize=14)
     ax.legend(loc="lower right")
 
 
-def plot_confusion_matrix(pred, y, axes, thres=0.65):
-
+def plot_confusion_matrix(pred, y, ax, thres=0.65, weight=None):
     pred_discrete = (pred > thres).astype(int)
     y_discrete = (y > 0).astype(int)
-    sample_weight = compute_sample_weight(class_weight='balanced', y=y_discrete)
 
-    cf_matrix_w_norm = confusion_matrix(y_discrete, pred_discrete, sample_weight=sample_weight, normalize='all')
-    cf_matrix = confusion_matrix(y_discrete, pred_discrete, normalize='all')
-
+    cf_matrix = confusion_matrix(y_discrete, pred_discrete, sample_weight=weight, normalize='all')
     # Normal Confusion Matrix
-    sn.heatmap(cf_matrix, annot=True, cbar=False, ax=axes[0])
-    axes[0].set_xlabel("Predicted")
-    axes[0].set_ylabel("True")
-    axes[0].set_title(f"Threshold: {thres}", fontsize=14)
+    sn.heatmap(cf_matrix, annot=True, cbar=False, ax=ax)
+    ax.set_xlabel("Predicted")
+    ax.set_ylabel("True")
 
-    # Weighted Cofusion Matrix
-    sn.heatmap(cf_matrix_w_norm, annot=True, cbar=False, ax=axes[1])
-    axes[1].set_xlabel("Predicted")
-    axes[1].set_ylabel("True")
-    axes[1].set_title(f"Weighted. Threshold: {thres}", fontsize=14)
+    if (weight is not None):
+        ax.set_title(f"Weighted. Threshold: {thres}", fontsize=14)
+    else:
+        ax.set_title(f"Threshold: {thres}", fontsize=14)
 
 
 def plot_prediction_distribution(pred, y, axes, thres=0.65):
@@ -219,14 +209,4 @@ def plot_prediction_distribution(pred, y, axes, thres=0.65):
     axes[1, 1].hist(y, bins=30)
     axes[1, 1].set_title('True Edge Labels Log', fontsize=14)
     axes[1, 1].set_yscale('log')
-    # ------------------------
-
-    # Thresholded labels in linear and log scales
-    thresholded = (pred > thres).astype(int)
-    axes[2, 0].set_title(f'Predicted Edge Labels for thr: {thres}', fontsize=14)
-    axes[2, 0].hist(thresholded, bins=30)
-
-    axes[2, 1].set_title(f'Predicted Edge Labels Log for thr: {thres}', fontsize=14)
-    axes[2, 1].hist(thresholded, bins=30)
-    axes[2, 1].set_yscale('log')
     # ------------------------

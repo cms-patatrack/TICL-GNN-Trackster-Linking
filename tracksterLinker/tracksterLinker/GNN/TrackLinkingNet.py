@@ -66,7 +66,7 @@ class FocalLoss(nn.Module):
         alpha_tensor = (1 - self.alpha) + targets * (2 * self.alpha - 1)
         # alpha if target = 1 and 1 - alpha if target = 0
         f_loss = (alpha_tensor * (1 - p_t) ** self.gamma * ce_loss).mean()
-        return f_loss * 1000
+        return f_loss
 
 
 class GNN_TrackLinkingNet(nn.Module):
