@@ -71,7 +71,7 @@ class FocalLoss(nn.Module):
 
 class GNN_TrackLinkingNet(nn.Module):
     def __init__(self, input_dim=19, hidden_dim=16, output_dim=1, niters=2, dropout=0.2,
-                 edge_feature_dim=12, edge_hidden_dim=16, weighted_aggr=True,
+                 edge_feature_dim=12, edge_hidden_dim=16, weighted_aggr=True, default_thresh = 0.6,
                  node_scaler=None, edge_scaler=None):
         super(GNN_TrackLinkingNet, self).__init__()
 
@@ -79,17 +79,15 @@ class GNN_TrackLinkingNet(nn.Module):
         self.input_dim = input_dim
         self.edge_feature_dim = edge_feature_dim
         self.weighted_aggr = weighted_aggr
+        self.threshold = default_thresh
 
-        if (node_scaler is not None):
-            self.node_scaler = node_scaler
-        else:
-            self.node_scaler = torch.ones(input_dim)
+        if (node_scaler is None):
+            node_scaler = torch.ones(input_dim)
+        self.register_buffer("node_scaler", node_scaler)
 
-
-        if (edge_scaler is not None):
-            self.edge_scaler = edge_scaler
-        else:
-            self.node_scaler = torch.ones(edge_feature_dim)
+        if (edge_scaler is None):
+            edge_scaler = torch.ones(edge_feature_dim)
+        self.register_buffer("edge_scaler", edge_scaler)
 
         # Feature transformation to latent space
         self.inputnetwork = nn.Sequential(
@@ -128,13 +126,11 @@ class GNN_TrackLinkingNet(nn.Module):
         # EdgeConv
         self.graphconvs = nn.ModuleList()
         for i in range(niters):
-            self.graphconvs.append(EdgeConvBlock(in_feat=hidden_dim,
-                                                 out_feats=[2*hidden_dim, hidden_dim], dropout=dropout,
-                                                 weighted_aggr=weighted_aggr))
+            self.graphconvs.append(EdgeConvBlock(in_feat=hidden_dim, out_feats=[2*hidden_dim, hidden_dim], weighted_aggr=self.weighted_aggr, dropout=dropout))
 
         # Edge features from node embeddings for classification
         self.edgenetwork = nn.Sequential(
-            nn.Linear(2 * hidden_dim + edge_feature_dim +
+            nn.Linear(2* hidden_dim + edge_feature_dim +
                       edge_hidden_dim, hidden_dim),
             nn.LeakyReLU(),
             nn.Dropout(dropout),
@@ -142,27 +138,33 @@ class GNN_TrackLinkingNet(nn.Module):
             nn.Sigmoid()
         )
 
-    def forward(self, X, edge_features, edge_index, return_emb=False, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
-
-        edge_features/= (edge_features + 10e-5) / self.edge_scaler
-        X /= self.node_scaler
+    def run(self, X, edge_features, edge_index, device:torch.device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
+        edge_features = (edge_features + 10e-5) / self.edge_scaler
+        X = X / self.node_scaler
         edge_features_NN = self.edge_inputnetwork(edge_features)
-
+        
         alpha_dir = self.attention_direct(edge_features_NN)
         alpha_rev = self.attention_reverse(edge_features_NN)
-        alpha = torch.cat([alpha_dir, alpha_rev], dim=0).float()
+        alpha = torch.cat([alpha_dir, alpha_rev], dim=0)
+
         # Feature transformation to latent space
         node_emb = self.inputnetwork(X)
-        ind_p1 = torch.cat((torch.arange(0, X.shape[0], dtype=int, device=device), edge_index[:, 0], edge_index[:, 1]))
-        ind_p2 = torch.cat((torch.arange(0, X.shape[0], dtype=int, device=device), edge_index[:, 1], edge_index[:, 0]))
+        empty = torch.zeros(X.shape[0], dtype=torch.int, device=device)
+        src, dst = edge_index.unbind(1)
+        ind_p1 = torch.cat((empty, src, dst))
+        ind_p2 = torch.cat((empty, dst, src))
 
         # Niters x EdgeConv block
-        for graphconv in self.graphconvs[:2]:
+        for graphconv in self.graphconvs:
             node_emb = graphconv(node_emb, ind_p1, ind_p2, alpha=alpha, device=device)
-        #node_emb = self.graphconvs[0](node_emb, ind_p1, ind_p2, alpha=alpha, device=device)
-       
-        edge_emb = torch.cat([node_emb[edge_index[:, 0]], node_emb[edge_index[:, 1]], edge_features_NN, edge_features], dim=-1)
+        
+        src_emb = node_emb.index_select(0, src)
+        dst_emb = node_emb.index_select(0, dst)
+
+        edge_emb = torch.cat([src_emb, dst_emb, edge_features_NN, edge_features], dim=-1)
         pred = self.edgenetwork(edge_emb)
-        if not return_emb:
-            return pred
-        return pred, node_emb
+        return pred
+
+    def forward(self, X, edge_features, edge_index, device:torch.device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
+        pred = self.run(X, edge_features, edge_index, device)
+        return (pred >= 0.6).to(dtype=pred.dtype, device=pred.device)

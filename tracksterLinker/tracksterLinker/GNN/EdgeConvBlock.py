@@ -16,7 +16,7 @@ class EdgeConvBlock(nn.Module):
         Output feature size.
     """
 
-    def __init__(self, in_feat, out_feats, activation=True, dropout=0.2, weighted_aggr=False):
+    def __init__(self, in_feat, out_feats, weighted_aggr, activation=True, dropout=0.2):
         super(EdgeConvBlock, self).__init__()
         self.activation = activation
         self.num_layers = len(out_feats)
@@ -24,53 +24,47 @@ class EdgeConvBlock(nn.Module):
 
         self.drop = nn.Dropout(dropout)
 
+        self.conv_0 = nn.Linear(2 * in_feat, out_feats[0])
         self.convs = nn.ModuleList()
-        for i in range(self.num_layers):
-            self.convs.append(nn.Linear(2 * in_feat if i == 0 else out_feats[i - 1], out_feats[i]))
+        for i in range(1, self.num_layers):
+            self.convs.append(nn.Linear(out_feats[i - 1], out_feats[i]))
 
+        self.act_0 = nn.ReLU()
         self.acts = nn.ModuleList()
-        for i in range(self.num_layers):
+        for i in range(1, self.num_layers):
             self.acts.append(nn.ReLU())
 
-        if in_feat == out_feats[-1]:
-            self.sc = None
-        else:
-            self.sc = nn.Linear(in_feat, out_feats[-1])
+        self.sc = nn.Linear(in_feat, out_feats[-1])
 
-        if activation:
-            self.sc_act = nn.ReLU()
+        self.sc_act = nn.ReLU()
 
-    def forward(self, features, ind_p1, ind_p2, alpha=None, device='cpu'):
+    def forward(self, features, ind_p1, ind_p2, alpha, device:torch.device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
         EDGE_EMB_p1 = features[ind_p1, :]
         EDGE_EMB_p2 = features[ind_p2, :] - EDGE_EMB_p1
 
         x = torch.cat((EDGE_EMB_p1, EDGE_EMB_p2), dim=1)
         N = features.shape[0]
-        i = 0
+        ones = torch.ones(N, dtype=torch.float32, device=device)
+       
+        x = self.conv_0(x)
+        x = self.act_0(x)
+        x = self.drop(x)
         
         for conv, act in zip(self.convs, self.acts):
             x = conv(x)
-            if self.activation:
-                x = act(x)
-            if i == 0:
-                x = self.drop(x)
-            i += 1
+            x = act(x)
 
         # Do aggregation
-        if self.weighted_aggr and alpha is not None:
-            alpha_vec = torch.cat((torch.ones(N, device=device, dtype=float).float(), torch.squeeze(alpha)), dim=0)
-            x = torch.mul(alpha_vec, x.transpose(0, 1)).transpose(0, 1)
+        alpha_vec = torch.cat((ones, torch.squeeze(alpha)), dim=0)
+        x = torch.mul(alpha_vec, x.transpose(0, 1)).transpose(0, 1)
 
         # Create a destination tensor to store the summed rows
-        summed_matrix = torch.zeros(N, x.size(1), device=device).float()
+        summed_matrix = torch.zeros((N, x.size(1)), dtype=torch.float32, device=device)
         # Sum the rows based on the index using torch.scatter_add
         x = torch.scatter_add(summed_matrix, 0, ind_p1.unsqueeze(1).repeat(1, x.size(1)), x)
 
         # Skip connection:
-        if self.sc:
-            sc = self.sc(features)
-        else:
-            sc = features
+        sc = self.sc(features)
         out = self.sc_act(sc + x)
 
         return out

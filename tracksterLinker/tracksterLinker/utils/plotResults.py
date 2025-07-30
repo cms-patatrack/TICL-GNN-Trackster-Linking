@@ -83,6 +83,7 @@ def plot_validation_results(pred, y, save=True, output_folder=None, file_suffix=
         fig.savefig(f"{output_folder}/{file_suffix}_validation_results.png", dpi=300,
                    bbox_inches='tight', transparent=True)
 
+    return best_threshold
 
 def get_model_prediction(model, testLoader, prepare_network_input_data=None,
                          device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
@@ -166,7 +167,14 @@ def plot_roc_curve(pred, y, ax, weight=None):
     y_discrete = (y > 0).astype(int)
     fpr, tpr, _ = roc_curve(y_discrete, pred, sample_weight=weight)
 
-    ax.plot(fpr, tpr, color="darkorange", lw=2, label="ROC curve (area = %0.2f)" % auc(fpr, tpr))
+    fpr = np.round(fpr, decimals=8)
+    _, unique_indices = np.unique(fpr, return_index=True)
+    fpr = fpr[unique_indices]
+    tpr = tpr[unique_indices]
+
+    auc_val = auc(fpr, tpr)
+
+    ax.plot(fpr, tpr, color="darkorange", lw=2, label="ROC curve (area = %0.2f)" % auc_val)
     ax.plot([0, 1], [0, 1], color="navy", lw=2, linestyle="--")
     ax.set_xlim([0.0, 1.0])
     ax.set_ylim([0.0, 1.05])

@@ -15,12 +15,7 @@ def train(model, opt, loader, epoch, emb_out=False, loss_obj=FocalLoss(), device
     for sample in tqdm(loader, desc=f"Training Epoch {epoch}"):
         # reset optimizer and enable training mode
         opt.zero_grad()
-
-
-        if emb_out:
-            z, _ = model(sample.x, sample.edge_features, sample.edge_index, device=device, emb_out=True)
-        else:
-            z = model(sample.x, sample.edge_features, sample.edge_index, device=device)
+        z = model.run(sample.x, sample.edge_features, sample.edge_index, device=device)
 
         # compute the loss
         loss = loss_obj(z.squeeze(-1), sample.y)
@@ -41,7 +36,7 @@ def test(model, loader, epoch, weighted="raw_energy", loss_obj=FocalLoss(), devi
         val_loss = 0.0
 
         for sample in tqdm(loader, desc=f"Validation Epoch {epoch}"):
-            nn_pred = model(sample.x, sample.edge_features, sample.edge_index, device=device)
+            nn_pred = model.run(sample.x, sample.edge_features, sample.edge_index, device=device)
             pred += nn_pred.squeeze(-1).tolist()
             y += sample.y.tolist()
             weights += calc_weights(sample.edge_index, sample.x, GNNDataset.node_feature_dict, name=weighted).tolist()

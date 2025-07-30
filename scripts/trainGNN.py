@@ -16,7 +16,7 @@ from tracksterLinker.utils.plotResults import *
 
 
 load_weights = False
-model_name = "model_2025-07-04_epoch_27_epoch_27_dict.pt"
+model_name = "model_2025-07-15_epoch_97_dict.pt"
 
 base_folder = "/home/czeh"
 model_folder = osp.join(base_folder, "GNN/model")
@@ -57,19 +57,19 @@ model.apply(weight_init)
 start_epoch = 0
 
 if load_weights:
-    weights = torch.load(osp.join(model_folder, model_name), weights_only=True)
+    weights = torch.load(osp.join(model_folder, f"{model_name}.pt"), weights_only=True)
     model.load_state_dict(weights["model_state_dict"])
     optimizer.load_state_dict(weights["optimizer_state_dict"])
     start_epoch = weights["epoch"]
+
+    save_model(model, 0, optimizer, [], [], output_folder=model_folder, filename=model_name, dummy_input=dataset_training.get(0))
 
 train_loss_hist = []
 val_loss_hist = []
 date = f"{datetime.now():%Y-%m-%d}"
 
-save_model(model, 0, optimizer, [], [], output_folder=model_folder, filename=f"model_empty", dummy_input=dataset_training.get(0))
 for epoch in range(start_epoch, epochs):
     print(f'Epoch: {epoch+1}')
-
     loss = train(model, optimizer, train_dl, epoch+1, device=device, loss_obj=loss_obj)
     train_loss_hist.append(loss)
 
@@ -77,7 +77,8 @@ for epoch in range(start_epoch, epochs):
     val_loss_hist.append(val_loss)
     print(f'Training loss: {loss}, Validation loss: {val_loss}')
 
-    plot_loss(train_loss_hist, val_loss_hist, save=True, output_folder=model_folder, filename=f"model_date_{date}_loss_epochs")
+    threshold = plot_loss(train_loss_hist, val_loss_hist, save=True, output_folder=model_folder, filename=f"model_date_{date}_loss_epochs")
+    model.threshold = threshold
     plot_validation_results(pred, y, save=True, output_folder=model_folder, file_suffix=f"epoch_{epoch+1}_date_{date}", weight=weight)
     save_model(model, epoch, optimizer, train_loss_hist, val_loss_hist, output_folder=model_folder, filename=f"model_{date}", dummy_input=dataset_training.get(0))
     early_stopping(model, val_loss)

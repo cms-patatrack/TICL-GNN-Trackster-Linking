@@ -21,13 +21,18 @@ def save_model(model, epoch, optimizer, loss, val_loss, output_folder, filename,
     
     if (dummy_input is not None):
         model.eval()
-        test_input = (dummy_input.x, dummy_input.edge_features, dummy_input.edge_index)
-        traced_model = torch.jit.trace(model, test_input)
         
-        if (torch.allclose(model(*test_input), traced_model(*test_input), atol=1e-6)):
-            traced_model.save(f"{path}_traced.pt")
+        with torch.no_grad():
+            test_input = (dummy_input.x, dummy_input.edge_features, dummy_input.edge_index)
+            traced_model = torch.jit.script(model)
+            
+            if (torch.allclose(model(*test_input), traced_model(*test_input), atol=1e-6)):
+                traced_model.save(f"{path}_traced.pt")
+            else:
+                print("Traced model is not similar to python model.")
     else:
         torch.save(model, f"{path}_pickle.pt")
+    model.train()
 
 
 def moving_average(a, n=3):
@@ -57,7 +62,6 @@ def plot_loss(train_loss_history, val_loss_history, ax=None, n=8, save=False, ou
     ax.legend()
 
     if (save and output_folder is not None and filename is not None):
-        print("save plot loss")
         path = os.path.join(output_folder, filename)
         plt.savefig(path)
 
