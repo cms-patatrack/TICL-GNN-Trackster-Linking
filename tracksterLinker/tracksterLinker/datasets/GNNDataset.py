@@ -113,11 +113,11 @@ def process_event(idx, event, model_feature_keys, node_feature_dict, processed_d
 
     # Create base graph from geometrical graph = [[], []]
     targets = ak.ravel(event.outer)
-    sources = ak.local_index(event.outer)
+    sources = ak.local_index(event.outer, axis=0)
     sources = ak.broadcast_arrays(sources, event.outer)[0]
     sources = ak.ravel(sources)
 
-    edges = cp.transpose(cp.stack([ak.to_cupy(sources), ak.to_cupy(targets)]))
+    edges = cp.transpose(cp.stack([ak.to_cupy(targets), ak.to_cupy(sources)]))
     if (edges.shape[0] < 2):
         return None, None
 
