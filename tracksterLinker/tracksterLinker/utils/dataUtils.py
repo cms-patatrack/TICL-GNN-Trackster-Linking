@@ -14,14 +14,14 @@ def calc_trackster_density(NTracksters):
 
 
 def calc_group_score(edges, y, score, shared_energy, raw_energy):
-    res = cp.round((1-ak.to_cupy(score)[edges[:, 0]]) * ak.to_cupy(shared_energy)[edges[:, 0]] / ak.to_cupy(raw_energy)[edges[:, 0]] +
-            (1-ak.to_cupy(score)[edges[:, 1]]) * ak.to_cupy(shared_energy)[edges[:, 1]] / ak.to_cupy(raw_energy)[edges[:, 1]], 3)/2
-    
+    termSrc = (1-ak.to_cupy(score)[edges[:, 0]]) * ak.to_cupy(shared_energy)[edges[:, 0]] / ak.to_cupy(raw_energy)[edges[:, 0]]
+    termDest = (1-ak.to_cupy(score)[edges[:, 1]]) * ak.to_cupy(shared_energy)[edges[:, 1]] / ak.to_cupy(raw_energy)[edges[:, 1]]
+    weight = (termSrc + termDest)/2 
     y = ak.to_cupy(y)
-    res[y[edges[:, 0]] != y[edges[:, 1]]] = 0
-    res[y[edges[:, 0]] == -1] = 0
-    res[y[edges[:, 1]] == -1] = 0
-    return res
+    weight[y[edges[:, 0]] != y[edges[:, 1]]] = 0
+    weight[y[edges[:, 0]] == -1] = 0
+    weight[y[edges[:, 1]] == -1] = 0
+    return weight
 
 
 # Store best fitting sim trackster with shared_e and score for each trackster
@@ -35,7 +35,7 @@ def calc_reco_2_sim_trackster_fit(groups, score, shared_energy):
     shared_energy = ak.flatten(ak.where(ak.count(simTracksters, axis=-1) == 1, shared_energy[idx], emptys), axis=-1)
     score = ak.flatten(ak.where(ak.count(simTracksters, axis=-1) == 1, score[idx], emptys), axis=-1)
 
-    return y, shared_energy, score
+    return y, score, shared_energy
 
 
 # For each trackster: number of layer cluster, sum of hits, number of layers normalized

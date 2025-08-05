@@ -86,10 +86,10 @@ def download_event(id, file, raw_dir):
     data["charged_hadron_prob"] = probabilities[:, :, 4]
     data["neutral_hadron_prob"] = probabilities[:, :, 5]
 
-    data["y"], data["shared_e"], data["score"] = calc_reco_2_sim_trackster_fit(
-        allassociations_array["ticlTrackstersCLUE3DHigh_recoToSim_CP"],
-        allassociations_array["ticlTrackstersCLUE3DHigh_recoToSim_CP_score"],
-        allassociations_array["ticlTrackstersCLUE3DHigh_recoToSim_CP_sharedE"])
+    data["y"], data["score"], data["shared_e"] = calc_reco_2_sim_trackster_fit(
+        allassociations_array["ticlTrackstersCLUE3DHigh_recoToSim_SC"],
+        allassociations_array["ticlTrackstersCLUE3DHigh_recoToSim_SC_score"],
+        allassociations_array["ticlTrackstersCLUE3DHigh_recoToSim_SC_sharedE"])
     data["inner"] = allgraph_array["inner"]
     data["outer"] = allgraph_array["outer"]
 

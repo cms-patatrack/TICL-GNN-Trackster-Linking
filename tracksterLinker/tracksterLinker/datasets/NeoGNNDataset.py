@@ -120,7 +120,6 @@ class NeoGNNDataset(Dataset):
 
                 allGNNtrain = load_branch_with_highest_cycle(file, 'ticlDumperGNN/GNNTraining')
                 allGNNtrain_array = allGNNtrain.arrays()
-                print(len(allGNNtrain_array))            
                 for event in allGNNtrain_array:
                     nTracksters = len(event["node_barycenter_x"])
                     features = cp.stack([ak.to_cupy(event[f"node_{field}"]) for field in self.model_feature_keys], axis=1)
