@@ -101,9 +101,10 @@ def weighted_precision_recall_f1(y_true, y_pred, weights):
     tp = torch.sum(weights[mask_pos & pred_pos])
     fp = torch.sum(weights[~mask_pos & pred_pos])
     fn = torch.sum(weights[mask_pos & ~pred_pos])
-    print("tp", tp)
-    print("fn", fn)
+    tn = torch.sum(weights[~mask_pos & ~pred_pos])
+    return weighted_precision_recall_f1_from_precalc(tp, fp, fn, tn)
 
+def weighted_precision_recall_f1_from_precalc(tp, fp, fn, tn):
     # Precision
     if tp + fp > 0:
         precision = tp / (tp + fp)
@@ -116,10 +117,16 @@ def weighted_precision_recall_f1(y_true, y_pred, weights):
     else:
         recall = torch.tensor(0.0, dtype=torch.float32)
 
+    # Specificity
+    if tn + fp > 0:
+        specificity = tn / (tn + fp)
+    else:
+        specificity = torch.tensor(0.0, dtype=torch.float32)
+
     # F1
     if precision + recall > 0:
         f1 = 2 * precision * recall / (precision + recall)
     else:
         f1 = torch.tensor(0.0, dtype=torch.float32)
 
-    return precision.item(), recall.item(), f1.item()
+    return precision.item(), recall.item(), specificity.item(), f1.item()

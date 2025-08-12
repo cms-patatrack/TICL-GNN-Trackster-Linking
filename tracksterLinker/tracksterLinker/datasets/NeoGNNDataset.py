@@ -133,6 +133,7 @@ class NeoGNNDataset(Dataset):
                     isPU = ak.to_cupy(event[f"simTrackster_isPU"])
 
                     PU_info = cp.stack([cross_PU(isPU, edges), mask_PU(isPU, edges, PU=False), mask_PU(isPU, edges, PU=True)], axis=1)
+                    y[(y > 0) & PU_info[:, 0]] = 0
 
                     data = Data(
                         x=torch.utils.dlpack.from_dlpack(features.toDlpack()).float(),
@@ -141,7 +142,7 @@ class NeoGNNDataset(Dataset):
                         edge_features=torch.utils.dlpack.from_dlpack(edge_features.toDlpack()).float(),
                         y=torch.utils.dlpack.from_dlpack(y.toDlpack()).float(),
                         isPU=torch.utils.dlpack.from_dlpack(isPU.toDlpack()).int(),
-                        PU_info=torch.utils.dlpack.from_dlpack(PU_info.toDlpack()).int())
+                        PU_info=torch.utils.dlpack.from_dlpack(PU_info.toDlpack()).bool())
                     torch.save(data, osp.join(self.processed_dir, f'data_{idx}.pt'))
                             
                     idx += 1

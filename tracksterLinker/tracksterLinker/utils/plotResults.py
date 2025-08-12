@@ -8,7 +8,7 @@ import torch
 from sklearn.metrics import confusion_matrix, roc_curve, auc, f1_score, balanced_accuracy_score, recall_score, precision_score
 from sklearn.utils.class_weight import compute_sample_weight
 from sklearn.metrics import class_likelihood_ratios, precision_recall_fscore_support, accuracy_score
-from tracksterLinker.utils.dataStatistics import weighted_precision_recall_f1
+from tracksterLinker.utils.dataStatistics import weighted_precision_recall_f1, weighted_precision_recall_f1_from_precalc
 
 
 import seaborn as sn
@@ -159,28 +159,19 @@ def plot_edge_distribution(pred, y, axes):
     axes[1].set_ylabel('Counts', fontsize=14)
 
 
-def print_acc_scores(pred, y, weight, thres=0.65):
-    pred_discrete = (pred > thres).float().numpy()
-    y_discrete = (y > 0).float().numpy()
-
-    #prec, rec, f1 = weighted_precision_recall_f1(y_discrete, pred_discrete, weight)
-    prec, rec, f1, support = precision_recall_fscore_support(y_discrete, pred_discrete, sample_weight=weight, average='binary', pos_label=1, zero_division=0.0)
-    print(f"Scores for Classification with Threshold: {thres}.")
-    print(f"Percentage of edges, which should be merged: {y_discrete[d_discrete == 1.0].shape[0]/y_discrete.shape[0]}")
-    print(f"Percentage of edges classified to merge: {pred_discrete[pred_discrete == 1.0].shape[0]/pred_discrete.shape[0]}")
+def print_acc_scores_from_precalc(tp, fp, fn, tn):
+    prec, rec, spec, f1 = weighted_precision_recall_f1_from_precalc(tp, fp, fn, tn)
+    print(f"Percentage of edges classified to merge: {(tp + fp)/(tp + fp + fn + tn)}")
+    print(f"Percentage of true edges which should be merged: {(tp + fn)/(tp + fp + fn + tn)}")
 
     print(f"F1 score: {f1:.3f}")
-    print(f"Balanced Accuracy: {balanced_accuracy_score(y_discrete, pred_discrete, sample_weight=weight):.3f}")
-    print(f"Accuracy: {accuracy_score(y_discrete, pred_discrete, sample_weight=weight):.3f}")
+    print(f"Accuracy: {tp / (tp + fp + fn + tn):.3f}")
     print(f"Precision: {prec:.4f}")
     print(f"Recall: {rec:.4f}")
-    print(f"Negative predictive value: {recall_score(y_discrete, pred_discrete, sample_weight=weight, pos_label=0, zero_division=0.0):.4f}")
-    print(f"True negative rate: {precision_score(y_discrete, pred_discrete, sample_weight=weight, pos_label=0, zero_division=0.0):.4f}")
+    print(f"Specificity: {spec:.4f}")
 
-    pos_lr, neg_lr = class_likelihood_ratios(y_discrete, pred_discrete, sample_weight=weight, raise_warning=False)
-    print(f"Positive Likelihood Ratio: {pos_lr}; x in [1.0, inf]; Higher is better; 1.0 means meaningless ML;")
-    print(f"Negative Likelihood Ratio: {neg_lr}; x in [0.0, 1.0]; Lower is better; 1.0 means menaingless ML;")
-
+    print(f"Positive Likelihood Ratio: {rec / (1 - spec + 1e-8)}; x in [1.0, inf]; Higher is better; 1.0 means meaningless ML;")
+    print(f"Negative Likelihood Ratio: {(1 - rec) / (spec + 1e-8)}; x in [0.0, 1.0]; Lower is better; 1.0 means menaingless ML;")
 
 def print_binned_acc_scores(pred, y, weights, thres=0.65):
     pred_discrete = (pred > thres).float()

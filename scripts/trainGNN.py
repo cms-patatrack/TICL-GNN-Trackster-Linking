@@ -65,9 +65,7 @@ if load_weights:
 
     save_model(model, 0, optimizer, [], [], output_folder=model_folder, filename=model_name, dummy_input=dataset_training[0])
 
-    val_loss, pred, y, weight, PU_info = test(model, test_dl, start_epoch+1, loss_obj=loss_obj, device=device, weighted="raw_energy")
-    threshold = get_best_threshold(pred, y, weight)
-    model.threshold = threshold
+    val_loss, pred, y, weight, PU_info = validate(model, test_dl, start_epoch+1, loss_obj=loss_obj, device=device, weighted="raw_energy")
     print("weighted by raw energy:")
     print_acc_scores(pred, y, weight, thres=threshold)
     print_binned_acc_scores(pred, y, weight, thres=threshold)
@@ -89,37 +87,36 @@ for epoch in range(start_epoch, start_epoch+epochs):
     loss = train(model, optimizer, train_dl, epoch+1, device=device, loss_obj=loss_obj)
     train_loss_hist.append(loss)
 
-    val_loss, pred, y, weight, PU_info = test(model, test_dl, epoch+1, loss_obj=loss_obj, device=device, weighted="raw_energy")
+    val_loss, cross_edges, signal_edges, pu_edges = test(model, test_dl, start_epoch+1, loss_obj=loss_obj, device=device, weighted="raw_energy")
     val_loss_hist.append(val_loss)
     print(f'Training loss: {loss}, Validation loss: {val_loss}')
 
     plot_loss(train_loss_hist, val_loss_hist, save=True, output_folder=model_folder, filename=f"model_date_{date}_loss_epochs")
-    y_true = (y > 0).int()
-    y_pred = (pred > 0.6).int()
-    precision, recall, f1 = weightes_precision_recall_f1(y_true, y_pred, weights)
-    print("Fast statistic on 0.6 threshold: Precision {precision}, Recall {recall}, F1 {f1}")
+
+    print("Fast statistic on model threshold:")
+    print("Only cross selected:")
+    print_acc_scores_from_precalc(*cross_edges)
+    print("Only signal trackster:") 
+    print_acc_scores_from_precalc(*signal_edges)
+    print("Only PU trackster:") 
+    print_acc_scores_from_precalc(*pu_edges)
     
     if ((epoch+1) % 10 == 0):
         print("Store Diagrams")
+
+        val_loss, pred, y, weight, PU_info = validate(model, test_dl, epoch+1, loss_obj=loss_obj, device=device, weighted="raw_energy")
         threshold = get_best_threshold(pred, y, weight)
         model.threshold = threshold
+
         print("weighted by raw energy:")
-        print_acc_scores(pred, y, weight, thres=threshold)
         print_binned_acc_scores(pred, y, weight, thres=threshold)
-        print("Only cross selected:")
-        print_acc_scores(pred, y, PU_info[0], thres=threshold)
-        print("Only signal trackster:") 
-        print_acc_scores(pred, y, PU_info[1], thres=threshold)
-        print_binned_acc_scores(pred, y, PU_info[1], thres=threshold)
-        print("Only PU trackster:") 
-        print_acc_scores(pred, y, PU_info[2], thres=threshold)
         plot_validation_results(pred, y, save=True, output_folder=model_folder, file_suffix=f"epoch_{epoch+1}_date_{date}", weight=weight)
 
     if ((epoch+1) % 10 == 0):
         print("Store Model")
         save_model(model, epoch, optimizer, train_loss_hist, val_loss_hist, output_folder=model_folder, filename=f"model_{date}", dummy_input=dataset_training[0])
-    early_stopping(model, val_loss)
 
+    early_stopping(model, val_loss)
     if early_stopping.early_stop:
         print(f"Early stopping after {epoch+1} epochs")
         early_stopping.load_best_model(model)

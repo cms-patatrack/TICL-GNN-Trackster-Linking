@@ -97,8 +97,8 @@ def calc_min_max_skeleton_dist(nTracksters, edges, vertices):
 
 def calc_weights(indizes, features, feature_dict, name="raw_energy"):
     feature_index = feature_dict[name]
-    weight = torch.maximum(features[indizes[:, 0], feature_index], features[indizes[:, 1], feature_index])
-    return weight 
+    weights = torch.maximum(features[indizes[:, 0], feature_index], features[indizes[:, 1], feature_index])
+    return weights 
 
 def cross_PU(isPU, edges):
     return (isPU[edges[:, 0]] != isPU[edges[:, 1]])
