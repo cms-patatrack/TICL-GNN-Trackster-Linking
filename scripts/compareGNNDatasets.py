@@ -14,15 +14,13 @@ if __name__ == "__main__":
     mp.set_start_method("spawn", force=True)
 
     base_folder = "/home/czeh"
-    hist_folder = osp.join(base_folder, "histo_preparedGNN_PU")
+    hist_folder = osp.join(base_folder, "histo_fullPU")
     data_folder_prepd = osp.join(base_folder, "compare/dataset_prepd")
     data_folder_hand = osp.join(base_folder, "compare/dataset_hand")
 
-
-    file = uproot.open("/home/czeh/histo_preparedGNN_0PU/train/histo.root")
     dataset_prepd = NeoGNNDataset(data_folder_prepd, hist_folder)
     dataset_hand = GNNDataset(data_folder_hand, hist_folder, num_workers=1)
-
+    
     nodes_hand = []
     nodes_prepd = []
 

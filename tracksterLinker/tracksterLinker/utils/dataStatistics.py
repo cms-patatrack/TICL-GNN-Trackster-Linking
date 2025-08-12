@@ -82,3 +82,44 @@ def plot_data_distribution(X, keys):
 
     fig.tight_layout()
     plt.show()
+    return  
+
+def accuracy_score(y, pred, weight):
+    return ((y == pred).float() * weights).sum() / weights.sum().item()
+
+
+def weighted_precision_recall_f1(y_true, y_pred, weights):
+	# Ensure binary ints
+    y_true = y_true.int()
+    y_pred = y_pred.int()
+
+    # Masks for positive class
+    mask_pos = (y_true == 1)
+    pred_pos = (y_pred == 1)
+
+    # Weighted counts
+    tp = torch.sum(weights[mask_pos & pred_pos])
+    fp = torch.sum(weights[~mask_pos & pred_pos])
+    fn = torch.sum(weights[mask_pos & ~pred_pos])
+    print("tp", tp)
+    print("fn", fn)
+
+    # Precision
+    if tp + fp > 0:
+        precision = tp / (tp + fp)
+    else:
+        precision = torch.tensor(0.0, dtype=torch.float32)
+
+    # Recall
+    if tp + fn > 0:
+        recall = tp / (tp + fn)
+    else:
+        recall = torch.tensor(0.0, dtype=torch.float32)
+
+    # F1
+    if precision + recall > 0:
+        f1 = 2 * precision * recall / (precision + recall)
+    else:
+        f1 = torch.tensor(0.0, dtype=torch.float32)
+
+    return precision.item(), recall.item(), f1.item()

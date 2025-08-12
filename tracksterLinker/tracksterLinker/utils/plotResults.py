@@ -8,6 +8,8 @@ import torch
 from sklearn.metrics import confusion_matrix, roc_curve, auc, f1_score, balanced_accuracy_score, recall_score, precision_score
 from sklearn.utils.class_weight import compute_sample_weight
 from sklearn.metrics import class_likelihood_ratios, precision_recall_fscore_support, accuracy_score
+from tracksterLinker.utils.dataStatistics import weighted_precision_recall_f1
+
 
 import seaborn as sn
 import mplhep as hep
@@ -18,7 +20,7 @@ plt.style.use(hep.style.CMS)
 
 
 # statistical analysis of prediction results
-def classification_threshold_scores(scores, ground_truth, ax, threshold_step=0.05, plot=True, save=False, output_folder=None, filename=None, weight=None):
+def classification_threshold_scores(scores, ground_truth, ax=None, threshold_step=0.05, plot=True, save=False, output_folder=None, filename=None, weight=None):
     """
     Plots and saves the figure of the dependancy of th eaccuracy, True Positive rate (precision) and 
     True Negative rate (recall) on the value of the classification threshold.
@@ -27,7 +29,7 @@ def classification_threshold_scores(scores, ground_truth, ax, threshold_step=0.0
     thresholds = np.arange(0, 1 + threshold_step, threshold_step)
     accuracy, recall, precision, F1 = [], [], [], []
     for threshold in thresholds:
-        prediction = (scores > threshold).astype(int)
+        prediction = (scores > threshold).astype(float)
         prec, rec, f1, support = precision_recall_fscore_support(y, prediction, sample_weight=weight, average='binary', pos_label=1, zero_division=0.0)
 
         accuracy.append(accuracy_score(y, prediction, sample_weight=weight))
@@ -52,31 +54,33 @@ def classification_threshold_scores(scores, ground_truth, ax, threshold_step=0.0
 
     return accuracy, recall, precision, F1, thresholds
 
-def calc_weights(indizes, features, feature_dict, name="raw_energy"):
-    feature_index = feature_dict[name]
-    weight = features[indizes[:, 0], feature_index] - features[indizes[:, 1], feature_index]
-    return weight 
-
-def plot_validation_results(pred, y, save=True, output_folder=None, file_suffix=None, ax=None, weight=None):
+def plot_validation_results(pred, y, save=True, thres=0.6, output_folder=None, file_suffix=None, ax=None, weight=None):
     save = save and output_folder is not None and file_suffix is not None
 
     if ax is None:
-        print("create")
+        print("Create Plot for Validation Results")
         fig, ax = plt.subplots(5, 2)
         fig.set_figheight(30)
         fig.set_figwidth(40)
 
+
+    pred = pred.cpu().detach().numpy()
+    y = y.cpu().detach().numpy()
+    
     # Plots without predictiohn threshold
     _, recall, precision, _, thresholds = classification_threshold_scores(pred, y, ax[0, 0], threshold_step=0.05, weight=weight)
     plot_roc_curve(pred, y, ax[0, 1], weight=weight)
     plot_edge_distribution(pred, y, ax[1, :])
     
     # Plots with fixed threshold
-    best_threshold = get_best_threshold(recall, precision, thresholds)
-    plot_confusion_matrix(pred, y, ax[2, 0], thres=best_threshold)
-    plot_confusion_matrix(pred, y, ax[2, 1], thres=best_threshold, weight=weight)
+    best_threshold = thres
+
+    pred_discrete = (pred > thres).astype(int)
+    y_discrete = (y > 0).astype(int)
+
+    plot_confusion_matrix(pred_discrete, y_discrete, ax[2, 0], thres=best_threshold)
+    plot_confusion_matrix(pred_discrete, y_discrete, ax[2, 1], thres=best_threshold, weight=weight)
     plot_prediction_distribution(pred, y, ax[3:5, :], thres=best_threshold)
-    print_acc_scores(pred, y, thres=best_threshold, weight=weight)
 
     # TODO: Save data, even with ax provided
     if save and fig is not None and output_folder is not None and file_suffix is not None:
@@ -110,22 +114,33 @@ def get_model_prediction(model, testLoader, prepare_network_input_data=None,
     return truth, predictions
 
 
-def get_best_threshold(recall, precision, thresholds, epsilon=0.02, default=0.65):
+def get_best_threshold(y, pred, weight, threshold_step=0.05, epsilon=0.02, default=0.65):
     # Find the threshold for which recall and precision intersect
+    thresholds = np.arange(0, 1, threshold_step)
+    last_precision, last_recall, f1 = weighted_precision_recall_f1(y, pred, weight)
+    y_discrete = (y > 0).int()
+
+    pred_discrete = (pred >= thresholds[0]).int()
+    _, _, f1 = weighted_precision_recall_f1(y_discrete, pred_discrete, weight)
+
+    pred_discrete = (pred >= thresholds[1]).int()
+    _, _, next_f1 = weighted_precision_recall_f1(y_discrete, pred_discrete, weight)
 
     for i in range(len(thresholds)-1):
-        if abs(recall[i] - precision[i]) < epsilon:
-            return round(thresholds[i], 3)
+        old_f1 = f1
+        f1 = next_f1
 
-        if recall[i] - precision[i] < 0 and recall[i+1] - precision[i+1] >= epsilon:
-            return round(0.5*(thresholds[i] + thresholds[i+1]), 3)
+        pred_discrete = (pred >= thresholds[i+1]).int()
+        _, _, next_f1 = weighted_precision_recall_f1(y_discrete, pred_discrete, weight)
+        if (old_f1 < f1 and f1 > next_f1):
+            return thresholds[i]
 
     print("Choose a default threshold...")
     return default
 
 
 def plot_edge_distribution(pred, y, axes):
-    y_discrete = (y > 0).astype(int)
+    y_discrete = (y > 0).astype(float)
     true_pred = pred[y_discrete == 1]
     false_pred = pred[y_discrete != 1]
 
@@ -144,12 +159,16 @@ def plot_edge_distribution(pred, y, axes):
     axes[1].set_ylabel('Counts', fontsize=14)
 
 
-def print_acc_scores(pred, y, thres=0.65, weight=None):
-    pred_discrete = (pred > thres).astype(int)
-    y_discrete = (y > 0).astype(int)
+def print_acc_scores(pred, y, weight, thres=0.65):
+    pred_discrete = (pred > thres).float().numpy()
+    y_discrete = (y > 0).float().numpy()
 
+    #prec, rec, f1 = weighted_precision_recall_f1(y_discrete, pred_discrete, weight)
     prec, rec, f1, support = precision_recall_fscore_support(y_discrete, pred_discrete, sample_weight=weight, average='binary', pos_label=1, zero_division=0.0)
     print(f"Scores for Classification with Threshold: {thres}.")
+    print(f"Percentage of edges, which should be merged: {y_discrete[d_discrete == 1.0].shape[0]/y_discrete.shape[0]}")
+    print(f"Percentage of edges classified to merge: {pred_discrete[pred_discrete == 1.0].shape[0]/pred_discrete.shape[0]}")
+
     print(f"F1 score: {f1:.3f}")
     print(f"Balanced Accuracy: {balanced_accuracy_score(y_discrete, pred_discrete, sample_weight=weight):.3f}")
     print(f"Accuracy: {accuracy_score(y_discrete, pred_discrete, sample_weight=weight):.3f}")
@@ -161,6 +180,27 @@ def print_acc_scores(pred, y, thres=0.65, weight=None):
     pos_lr, neg_lr = class_likelihood_ratios(y_discrete, pred_discrete, sample_weight=weight, raise_warning=False)
     print(f"Positive Likelihood Ratio: {pos_lr}; x in [1.0, inf]; Higher is better; 1.0 means meaningless ML;")
     print(f"Negative Likelihood Ratio: {neg_lr}; x in [0.0, 1.0]; Lower is better; 1.0 means menaingless ML;")
+
+
+def print_binned_acc_scores(pred, y, weights, thres=0.65):
+    pred_discrete = (pred > thres).float()
+    y_discrete = (y > 0).float()
+    bin_edges = [weights.min(), 5, 10, 20, 50, 100, 300, weights.max()]
+    
+    bin_vals = []
+    for i in range(len(bin_edges)-1):
+        in_bin = (weights >= bin_edges[i]) & (weights < bin_edges[i+1])
+        if in_bin.sum() > 0:  # avoid empty bins
+            acc = accuracy_score(y_discrete[in_bin].numpy(), pred_discrete[in_bin].numpy())
+            prec = precision_score(y_discrete[in_bin].numpy(), pred_discrete[in_bin].numpy())
+            rec = recall_score(y_discrete[in_bin].numpy(), pred_discrete[in_bin].numpy())
+            bin_vals.append((float(bin_edges[i]), float(bin_edges[i+1]), acc, prec, rec))
+        else:
+            bin_vals.append((float(bin_edges[i]), float(bin_edges[i+1]), None, None, None))
+
+    for low, high, acc, prec, rec in bin_vals:
+        if acc != None:
+            print(f"Bin {low:.2f} - {high:.2f}: Accuracy {acc:.4f}, Precision {prec:.4f}, Recall {rec:.4f}")
 
 
 def plot_roc_curve(pred, y, ax, weight=None):
@@ -184,10 +224,7 @@ def plot_roc_curve(pred, y, ax, weight=None):
     ax.legend(loc="lower right")
 
 
-def plot_confusion_matrix(pred, y, ax, thres=0.65, weight=None):
-    pred_discrete = (pred > thres).astype(int)
-    y_discrete = (y > 0).astype(int)
-
+def plot_confusion_matrix(pred_discrete, y_discrete, ax, thres=0.65, weight=None):
     cf_matrix = confusion_matrix(y_discrete, pred_discrete, sample_weight=weight, normalize='all')
     # Normal Confusion Matrix
     sn.heatmap(cf_matrix, annot=True, cbar=False, ax=ax)

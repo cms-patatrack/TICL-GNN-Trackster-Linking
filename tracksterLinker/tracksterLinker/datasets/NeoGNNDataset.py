@@ -12,7 +12,7 @@ from torch.utils.data import Dataset
 import torch.nn.functional as F
 from torch_geometric.data import Data
 
-from tracksterLinker.datasets.lang import Lang
+from tracksterLinker.utils.dataUtils import calc_weights, cross_PU, mask_PU 
 
 from collections.abc import Sequence
 from typing import Callable
@@ -21,7 +21,6 @@ import uproot as uproot
 
 def load_branch_with_highest_cycle(file, branch_name):
     # use this to load the tree if some of file.keys() are duplicates ending with different numbers
-
     # Get all keys in the file
     all_keys = file.keys()
 
@@ -116,9 +115,14 @@ class NeoGNNDataset(Dataset):
                 self.edge_scaler = torch.zeros(len(self.edge_feature_keys), device=self.device)
             
             for file in files:
+                print(file)
                 file = uproot.open(file)
 
-                allGNNtrain = load_branch_with_highest_cycle(file, 'ticlDumperGNN/GNNTraining')
+                if (len(file.keys()) == 0):
+                    print("SKIP")
+                    continue
+
+                allGNNtrain = load_branch_with_highest_cycle(file, 'ticlDumper/GNNTraining')
                 allGNNtrain_array = allGNNtrain.arrays()
                 for event in allGNNtrain_array:
                     nTracksters = len(event["node_barycenter_x"])
@@ -126,13 +130,18 @@ class NeoGNNDataset(Dataset):
                     edges = cp.stack([ak.to_cupy(ak.flatten(event[f"edgeIndex_{field}"])) for field in ["out", "in"]], axis=1)
                     edge_features = cp.stack([ak.to_cupy(ak.flatten(event[f"edge_{field}"])) for field in self.edge_feature_keys], axis=1)
                     y = ak.to_cupy(ak.flatten(event[f"edge_weight"]))
+                    isPU = ak.to_cupy(event[f"simTrackster_isPU"])
+
+                    PU_info = cp.stack([cross_PU(isPU, edges), mask_PU(isPU, edges, PU=False), mask_PU(isPU, edges, PU=True)], axis=1)
 
                     data = Data(
                         x=torch.utils.dlpack.from_dlpack(features.toDlpack()).float(),
                         num_nodes=nTracksters, 
                         edge_index=torch.utils.dlpack.from_dlpack(edges.toDlpack()).long(),
                         edge_features=torch.utils.dlpack.from_dlpack(edge_features.toDlpack()).float(),
-                        y=torch.utils.dlpack.from_dlpack(y.toDlpack()).float())
+                        y=torch.utils.dlpack.from_dlpack(y.toDlpack()).float(),
+                        isPU=torch.utils.dlpack.from_dlpack(isPU.toDlpack()).int(),
+                        PU_info=torch.utils.dlpack.from_dlpack(PU_info.toDlpack()).int())
                     torch.save(data, osp.join(self.processed_dir, f'data_{idx}.pt'))
                             
                     idx += 1
