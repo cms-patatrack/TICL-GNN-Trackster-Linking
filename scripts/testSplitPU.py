@@ -24,6 +24,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else "cpu")
 meanComps = []
 maxComps = []
 for sample in tqdm(test_dl):
+    print(sample.num_nodes, sample.isPU.shape)
     G = nx.Graph()
     G.add_nodes_from(list(range(sample.x.shape[0])))
     new_edge_index = sample.edge_index[~sample.PU_info[:, 0]].detach().cpu().numpy()
