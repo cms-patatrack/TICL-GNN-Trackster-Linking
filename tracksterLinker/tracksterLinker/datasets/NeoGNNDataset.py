@@ -61,12 +61,13 @@ class NeoGNNDataset(Dataset):
     model_feature_keys = node_feature_keys 
     edge_feature_keys = ["raw_energy", "barycenter_z", "barycenter_xy", "eigenvector0", "time"]
 
-    def __init__(self, root, histo_path, test=False, edge_scaler=None, node_scaler=None, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
+    def __init__(self, root, histo_path, test=False, edge_scaler=None, node_scaler=None, only_signal=False, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
         self.test = test
         self.root_dir = root
         self.histo_path = histo_path
         self.processed_dir = osp.join(self.root_dir, "processed")
         self.device = device
+        self.only_signal = only_signal
 
         if (node_scaler is None and osp.isfile(osp.join(self.root_dir, "node_scaler.pt"))):
             self.node_scaler = torch.load(osp.join(self.root_dir, "node_scaler.pt"))
@@ -124,16 +125,20 @@ class NeoGNNDataset(Dataset):
 
                 allGNNtrain = load_branch_with_highest_cycle(file, 'ticlDumper/GNNTraining')
                 allGNNtrain_array = allGNNtrain.arrays()
+
                 for event in allGNNtrain_array:
                     nTracksters = len(event["node_barycenter_x"])
                     features = cp.stack([ak.to_cupy(event[f"node_{field}"]) for field in self.model_feature_keys], axis=1)
                     edges = cp.stack([ak.to_cupy(ak.flatten(event[f"edgeIndex_{field}"])) for field in ["out", "in"]], axis=1)
                     edge_features = cp.stack([ak.to_cupy(ak.flatten(event[f"edge_{field}"])) for field in self.edge_feature_keys], axis=1)
-                    y = ak.to_cupy(ak.flatten(event[f"edge_weight"]))
-                    isPU = ak.to_cupy(event[f"simTrackster_isPU"])
+                    y = ak.to_cupy(ak.flatten(event["edge_weight"]))
+                    isPU = ak.to_cupy(event["simTrackster_isPU"][event["node_match_idx"]])
 
                     PU_info = cp.stack([cross_PU(isPU, edges), mask_PU(isPU, edges, PU=False), mask_PU(isPU, edges, PU=True)], axis=1)
                     y[(y > 0) & PU_info[:, 0]] = 0
+                    
+                    if (self.only_signal):
+                        y[PU_info[:, 2]] = 0
 
                     data = Data(
                         x=torch.utils.dlpack.from_dlpack(features.toDlpack()).float(),
@@ -144,7 +149,7 @@ class NeoGNNDataset(Dataset):
                         isPU=torch.utils.dlpack.from_dlpack(isPU.toDlpack()).int(),
                         PU_info=torch.utils.dlpack.from_dlpack(PU_info.toDlpack()).bool())
                     torch.save(data, osp.join(self.processed_dir, f'data_{idx}.pt'))
-                            
+
                     idx += 1
                     if (not self.test):
                         self.node_scaler = torch.maximum(self.node_scaler, torch.max(torch.abs(data["x"]), axis=0).values)

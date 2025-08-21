@@ -117,21 +117,21 @@ def get_model_prediction(model, testLoader, prepare_network_input_data=None,
 def get_best_threshold(y, pred, weight, threshold_step=0.05, epsilon=0.02, default=0.65):
     # Find the threshold for which recall and precision intersect
     thresholds = np.arange(0, 1, threshold_step)
-    last_precision, last_recall, f1 = weighted_precision_recall_f1(y, pred, weight)
+    _, _, _, f1 = weighted_precision_recall_f1(y, pred, weight)
     y_discrete = (y > 0).int()
 
     pred_discrete = (pred >= thresholds[0]).int()
-    _, _, f1 = weighted_precision_recall_f1(y_discrete, pred_discrete, weight)
+    _, _, _, f1 = weighted_precision_recall_f1(y_discrete, pred_discrete, weight)
 
     pred_discrete = (pred >= thresholds[1]).int()
-    _, _, next_f1 = weighted_precision_recall_f1(y_discrete, pred_discrete, weight)
+    _, _, _, next_f1 = weighted_precision_recall_f1(y_discrete, pred_discrete, weight)
 
     for i in range(len(thresholds)-1):
         old_f1 = f1
         f1 = next_f1
 
         pred_discrete = (pred >= thresholds[i+1]).int()
-        _, _, next_f1 = weighted_precision_recall_f1(y_discrete, pred_discrete, weight)
+        _, _, _, next_f1 = weighted_precision_recall_f1(y_discrete, pred_discrete, weight)
         if (old_f1 < f1 and f1 > next_f1):
             return thresholds[i]
 

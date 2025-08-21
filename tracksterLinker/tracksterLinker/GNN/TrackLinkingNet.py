@@ -4,8 +4,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from torch.utils.tensorboard import SummaryWriter
-
 from tracksterLinker.GNN.EdgeConvBlock import EdgeConvBlock
 from tracksterLinker.datasets.GNNDataset import GNNDataset
 
@@ -50,7 +48,7 @@ class FocalLoss(nn.Module):
         self.gamma = gamma
         self.alpha = alpha
 
-    def forward(self, predictions, targets):
+    def forward(self, predictions, targets, weights):
         """Binary focal loss, mean.
 
         Per https://discuss.pytorch.org/t/is-this-a-correct-implementation-for-focal-loss-in-pytorch/43327/5 with
@@ -60,8 +58,7 @@ class FocalLoss(nn.Module):
         :param gamma: focal loss power parameter, a float scalar.
         :param alpha: weight of the class indicated by 1, a float scalar.
         """
-        ce_loss = F.binary_cross_entropy(
-            predictions, targets, reduction='none')
+        ce_loss = F.binary_cross_entropy(predictions, targets, reduction='none', weight=weights)
         p_t = torch.exp(-ce_loss)
         alpha_tensor = (1 - self.alpha) + targets * (2 * self.alpha - 1)
         # alpha if target = 1 and 1 - alpha if target = 0
@@ -138,7 +135,7 @@ class GNN_TrackLinkingNet(nn.Module):
             nn.Sigmoid()
         )
 
-    def run(self, X, edge_features, edge_index, device:torch.device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
+    def forward(self, X, edge_features, edge_index, device:torch.device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
         edge_features = (edge_features + 10e-5) / self.edge_scaler
         X = X / self.node_scaler
         edge_features_NN = self.edge_inputnetwork(edge_features)
@@ -165,6 +162,6 @@ class GNN_TrackLinkingNet(nn.Module):
         pred = self.edgenetwork(edge_emb)
         return pred
 
-    def forward(self, X, edge_features, edge_index, device:torch.device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
+    def run(self, X, edge_features, edge_index, device:torch.device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
         pred = self.run(X, edge_features, edge_index, device)
-        return (pred >= 0.6).to(dtype=pred.dtype, device=pred.device)
+        return (pred >= self.threshold).to(dtype=pred.dtype, device=pred.device)
