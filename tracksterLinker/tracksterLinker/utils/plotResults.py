@@ -54,6 +54,26 @@ def classification_threshold_scores(scores, ground_truth, ax=None, threshold_ste
 
     return accuracy, recall, precision, F1, thresholds
 
+def plot_binned_validation_results(pred, y, weights, thres=0.65, output_folder=None, file_suffix=None):
+    pred_discrete = (pred > thres).float()
+    y_discrete = (y > 0).float()
+    bin_edges = [weights.min(), 5, 10, 20, 50, 100, 300, weights.max()]
+    
+    bin_vals = []
+    for i in range(len(bin_edges)-1):
+        in_bin = (weights >= bin_edges[i]) & (weights < bin_edges[i+1])
+        if in_bin.sum() > 0:  # avoid empty bins
+            acc = accuracy_score(y_discrete[in_bin].numpy(), pred_discrete[in_bin].numpy())
+            prec = precision_score(y_discrete[in_bin].numpy(), pred_discrete[in_bin].numpy())
+            rec = recall_score(y_discrete[in_bin].numpy(), pred_discrete[in_bin].numpy())
+            bin_vals.append((float(bin_edges[i]), float(bin_edges[i+1]), acc, prec, rec))
+            plot_validation_results(pred[in_bin], y[in_bin], thres, weight=weights[in_bin], file_suffix=f"{file_suffix}_bin_{float(bin_edges[i])}_{float(bin_edges[i+1])}", output_folder=output_folder)
+        else:
+
+    for low, high, acc, prec, rec in bin_vals:
+        if acc != None:
+            print(f"Bin {low:.2f} - {high:.2f}: Accuracy {acc:.4f}, Precision {prec:.4f}, Recall {rec:.4f}")
+
 def plot_validation_results(pred, y, save=True, thres=0.6, output_folder=None, file_suffix=None, ax=None, weight=None):
     save = save and output_folder is not None and file_suffix is not None
 
@@ -185,13 +205,9 @@ def print_binned_acc_scores(pred, y, weights, thres=0.65):
             acc = accuracy_score(y_discrete[in_bin].numpy(), pred_discrete[in_bin].numpy())
             prec = precision_score(y_discrete[in_bin].numpy(), pred_discrete[in_bin].numpy())
             rec = recall_score(y_discrete[in_bin].numpy(), pred_discrete[in_bin].numpy())
-            bin_vals.append((float(bin_edges[i]), float(bin_edges[i+1]), acc, prec, rec))
+            print(f"Bin {float(bin_edges[i]):.2f} - {float(bin_edges[i+1]):.2f}: Accuracy {acc:.4f}, Precision {prec:.4f}, Recall {rec:.4f}")
         else:
-            bin_vals.append((float(bin_edges[i]), float(bin_edges[i+1]), None, None, None))
-
-    for low, high, acc, prec, rec in bin_vals:
-        if acc != None:
-            print(f"Bin {low:.2f} - {high:.2f}: Accuracy {acc:.4f}, Precision {prec:.4f}, Recall {rec:.4f}")
+            print(f"Bin {float(bin_edges[i]):.2f} - {float(bin_edges[i+1]):.2f}: Empty")
 
 
 def plot_roc_curve(pred, y, ax, weight=None):
