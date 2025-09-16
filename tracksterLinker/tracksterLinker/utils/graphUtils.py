@@ -5,6 +5,7 @@ import awkward as ak
 from typing import List, Dict, Any
 from collections import defaultdict
 
+from tracksterLinker.datasets.NeoGNNDataset import NeoGNNDataset
 
 class TileConstants:
     minEta = -cp.pi
@@ -62,15 +63,15 @@ def build_subgraph(graph, root, neighborhood=1):
     return cp.unique(subgraph)
 
 
-def find_connected_components(graph, num_nodes):
-    visited = torch.zeros(num_nodes, dtype=torch.bool)
+def find_connected_components(graph, num_nodes, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
+    visited = torch.zeros(num_nodes, dtype=torch.bool, device=device)
     components = []
 
     for node in range(num_nodes):
         if not visited[node]:
             visited[node] = True
             component = [node]
-            queue = torch.tensor([node], dtype=torch.long)
+            queue = torch.tensor([node], dtype=torch.long, device=device)
 
             while queue.numel() > 0:
                 root = queue[0].item()
@@ -92,6 +93,66 @@ def find_connected_components(graph, num_nodes):
 
     return components
 
+
+def get_component_features(components, node_values):
+    all_features =  []
+    for component in components:
+       feature_components = node_values[component, :] 
+       energy = node_values[component, NeoGNNDataset.node_feature_dict["raw_energy"]]
+       sum_energy = energy.expand(node_values.shape[1], energy.shape[0]) 
+
+       features = torch.sum(node_values[component] * sum_energy.T, axis=0) / torch.sum(energy)
+       all_features.append(features)
+    return torch.stack(all_features)
+
+
+def filter_nested_list(data, allowed):
+    if isinstance(data, list):
+        # recurse if list
+        return [filter_nested_list(item, allowed) for item in data if not isinstance(item, list) and item in allowed or isinstance(item, list)]
+    else:
+        # keep only if in allowed
+        return data if data in allowed else None
+
+def calc_overlapping_components(graph_pred, node_values, true_components, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
+    node_energy = node_values[:, NeoGNNDataset.node_feature_dict["raw_energy"]]
+
+    pred_components = find_connected_components(graph_pred, node_energy.shape[0], device=device)
+    overlapping_components = []
+    for component in true_components:
+        filtered_components = ak.from_iter(filter_nested_list(pred_components, component))
+        filtered_components = filtered_components[ak.num(filtered_components) > 0]
+
+        energys = []
+        for comp in filtered_components:
+            energys.append(torch.sum(node_energy[comp]))
+        
+        idx = torch.argmax(torch.tensor(energys))
+        overlapping_components.append(pred_components[idx])
+    return overlapping_components, get_component_features(overlapping_components, node_values)
+
+def calc_missing_energy(graph_true, graph_pred, node_values, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
+    true_energy = []
+    pred_energy = []
+    node_energy = node_values[:, NeoGNNDataset.node_feature_dict["raw_energy"]]
+
+    true_components = find_connected_components(graph_true, node_energy.shape[0], device=device)
+    pred_components = find_connected_components(graph_pred, node_energy.shape[0], device=device)
+
+    for component in true_components:
+        true_energy.append(torch.sum(node_energy[component]).item())
+
+        filtered_components = ak.from_iter(filter_nested_list(pred_components, component))
+        filtered_components = filtered_components[ak.num(filtered_components) > 0]
+        energys = []
+        for comp in filtered_components:
+            energys.append(torch.sum(node_energy[comp]))
+
+        pred_energy.append(torch.max(torch.tensor(energys)).item())
+
+    true_energy = torch.tensor(true_energy)
+    pred_energy = torch.tensor(pred_energy)
+    return (true_energy - pred_energy), true_energy
 
 def build_ticl_graph(NTrackster, trackster):
 
