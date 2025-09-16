@@ -111,6 +111,7 @@ class NeoGNNDataset(Dataset):
             if (self.test):
                 files = glob(f"{self.histo_path}/test/*.root")
             else:
+                print("here")
                 files = glob(f"{self.histo_path}/train/*.root")
                 self.node_scaler = torch.zeros(len(self.model_feature_keys), device=self.device) 
                 self.edge_scaler = torch.zeros(len(self.edge_feature_keys), device=self.device)
@@ -123,8 +124,9 @@ class NeoGNNDataset(Dataset):
                     print("SKIP")
                     continue
 
-                allGNNtrain = load_branch_with_highest_cycle(file, 'ticlDumper/GNNTraining')
+                allGNNtrain = load_branch_with_highest_cycle(file, 'ticlDumperGNN/GNNTraining')
                 allGNNtrain_array = allGNNtrain.arrays()
+                print(allGNNtrain_array)
 
                 for event in allGNNtrain_array:
                     nTracksters = len(event["node_barycenter_x"])
