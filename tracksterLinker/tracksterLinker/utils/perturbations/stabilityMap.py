@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.interpolate import griddata
 
-def plot_graphs_heatmap(graphs, mode="3d", file=None, folder=None):
+def plot_graphs_heatmap(graphs, mode="3d", values="values", file=None, folder=None):
     """
     Plot multiple graphs with node values as heatmap colors.
     
@@ -24,7 +24,7 @@ def plot_graphs_heatmap(graphs, mode="3d", file=None, folder=None):
     markers = ["o", "s", "D", "^", "v", "P", "X", "*"]
     
     # Collect all values for global colormap scaling
-    all_values = np.concatenate([g["values"] for g in graphs])
+    all_values = np.concatenate([g[values] for g in graphs])
     vmin, vmax = np.min(all_values), np.max(all_values)
     
     if mode == "3d":
@@ -34,10 +34,10 @@ def plot_graphs_heatmap(graphs, mode="3d", file=None, folder=None):
         for i, g in enumerate(graphs):
             sc = ax.scatter(
                 g["eta"], g["phi"], g["z"],
-                c=g["values"], cmap="coolwarm",
+                c=g[values]/g["full_energy"], cmap="GnBu",
                 vmin=vmin, vmax=vmax,
                 marker=markers[i % len(markers)],
-                s=40, edgecolor="k", alpha=0.8,
+                s=g["energy"], edgecolor="k", alpha=0.8,
                 label=g.get("label", f"Graph {i+1}")
             )
         
@@ -51,7 +51,7 @@ def plot_graphs_heatmap(graphs, mode="3d", file=None, folder=None):
         for i, g in enumerate(graphs):
             sc = ax.scatter(
                 g["eta"], g["phi"],
-                c=g["values"], cmap="coolwarm",
+                c=g[values]/g["full_energy"], cmap="GnBu",
                 vmin=vmin, vmax=vmax,
                 marker=markers[i % len(markers)],
                 s=60, edgecolor="k", alpha=0.8,
@@ -65,7 +65,7 @@ def plot_graphs_heatmap(graphs, mode="3d", file=None, folder=None):
         raise ValueError("mode must be '2d' or '3d'")
     
     # Shared colorbar
-    cbar = plt.colorbar(sc, ax=ax, label="Value (neg=good, pos=bad)")
+    cbar = plt.colorbar(sc, ax=ax, label="Value")
     
     # Legend
     ax.legend()
@@ -77,7 +77,7 @@ def plot_graphs_heatmap(graphs, mode="3d", file=None, folder=None):
         plt.savefig(path)
 
 
-def plot_graphs_heatmap_interp(graphs, resolution=200, file=None, folder=None):
+def plot_graphs_heatmap_interp(graphs, values="values", resolution=200, file=None, folder=None):
     """
     Interpolated 2D heatmap for multiple graphs (eta vs phi).
     
@@ -105,7 +105,7 @@ def plot_graphs_heatmap_interp(graphs, resolution=200, file=None, folder=None):
         
         # Interpolation
         grid_values = griddata(
-            (g["eta"], g["phi"]), g["values"],
+            (g["eta"], g["phi"]), g[values] * g["energy"],
             (grid_eta, grid_phi), method="cubic", fill_value=np.nan
         )
         
@@ -113,7 +113,7 @@ def plot_graphs_heatmap_interp(graphs, resolution=200, file=None, folder=None):
         im = ax.imshow(
             grid_values, origin="lower", aspect="auto",
             extent=(min(g["eta"]), max(g["eta"]), min(g["phi"]), max(g["phi"])),
-            cmap="coolwarm"
+            cmap="GnBu"
         )
         
         ax.set_title(g.get("label", "Graph"))
@@ -121,7 +121,7 @@ def plot_graphs_heatmap_interp(graphs, resolution=200, file=None, folder=None):
         ax.set_ylabel("phi")
     
     # Shared colorbar
-    fig.colorbar(im, ax=axes, label="Value (neg=good, pos=bad)")
+    fig.colorbar(im, ax=axes, label=value)
     if file is None and folder is None:
         plt.show()
     else:

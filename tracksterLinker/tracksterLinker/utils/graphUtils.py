@@ -93,7 +93,6 @@ def find_connected_components(graph, num_nodes, device=torch.device('cuda' if to
 
     return components
 
-
 def get_component_features(components, node_values):
     all_features =  []
     for component in components:
@@ -104,32 +103,6 @@ def get_component_features(components, node_values):
        features = torch.sum(node_values[component] * sum_energy.T, axis=0) / torch.sum(energy)
        all_features.append(features)
     return torch.stack(all_features)
-
-
-def filter_nested_list(data, allowed):
-    if isinstance(data, list):
-        # recurse if list
-        return [filter_nested_list(item, allowed) for item in data if not isinstance(item, list) and item in allowed or isinstance(item, list)]
-    else:
-        # keep only if in allowed
-        return data if data in allowed else None
-
-def calc_overlapping_components(graph_pred, node_values, true_components, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
-    node_energy = node_values[:, NeoGNNDataset.node_feature_dict["raw_energy"]]
-
-    pred_components = find_connected_components(graph_pred, node_energy.shape[0], device=device)
-    overlapping_components = []
-    for component in true_components:
-        filtered_components = ak.from_iter(filter_nested_list(pred_components, component))
-        filtered_components = filtered_components[ak.num(filtered_components) > 0]
-
-        energys = []
-        for comp in filtered_components:
-            energys.append(torch.sum(node_energy[comp]))
-        
-        idx = torch.argmax(torch.tensor(energys))
-        overlapping_components.append(pred_components[idx])
-    return overlapping_components, get_component_features(overlapping_components, node_values)
 
 def calc_missing_energy(graph_true, graph_pred, node_values, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
     true_energy = []

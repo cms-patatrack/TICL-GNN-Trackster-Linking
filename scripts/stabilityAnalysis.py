@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 from tracksterLinker.datasets.NeoGNNDataset import NeoGNNDataset
 from tracksterLinker.utils.dataStatistics import *
 from tracksterLinker.utils.graphUtils import *
+from tracksterLinker.utils.graphMetric import *
 
 from tracksterLinker.utils.perturbations.allNodes import perturbate
 from tracksterLinker.utils.perturbations.stabilityMap import *
@@ -40,9 +41,10 @@ model = jit.load(osp.join(model_folder, f"{model_name}.pt"))
 model = model.to(device)
 model.eval()
 
+i = 0
 for sample in data_loader:
-    print(sample.isPU)
-    tracksters = []
+    trackstersPU = []
+    trackstersSignal = []
     nn_pred = model.forward(sample.x, sample.edge_features, sample.edge_index, device=device)
      
     y_pred = (nn_pred > model.threshold).squeeze()
@@ -50,39 +52,39 @@ for sample in data_loader:
 
     graph_true = sample.edge_index[y_true]
     graph_pred = sample.edge_index[y_pred]
-    true_components = find_connected_components(graph_true, sample.x.shape[0], device=device)
-    true_component_features = get_component_features(true_components, sample.x)
-    full_energy = torch.sum(true_component_features[:, NeoGNNDataset.node_feature_dict["raw_energy"]])
-    print(f"Event Energy: {full_energy}")
 
-    pred_components, pred_component_features = calc_overlapping_components(graph_pred, sample.x, true_components, device=device)
-    #baseline_diff, true_energy = calc_missing_energy(graph_true, graph_pred, sample.x)
-    baseline_energy_diff = true_component_features[:, NeoGNNDataset.node_feature_dict["raw_energy"]] - pred_component_features[:, NeoGNNDataset.node_feature_dict["raw_energy"]]
-    print(f"Baseline: {pred_component_features[:, NeoGNNDataset.node_feature_dict['raw_energy']]}")
-    print(baseline_energy_diff.shape[0])
-    tracksters.append({"eta": pred_component_features[:, NeoGNNDataset.node_feature_dict["barycenter_eta"]].cpu(),
-                       "phi": pred_component_features[:, NeoGNNDataset.node_feature_dict["barycenter_phi"]].cpu(),
-                       "z": pred_component_features[:, NeoGNNDataset.node_feature_dict["barycenter_z"]].cpu(),
-                       "values": (baseline_energy_diff - baseline_energy_diff).cpu(),
-                       "label": "baseline"})
+    metrics = graph_dist(graph_true, graph_pred, sample.x, sample.isPU, device=device, verbose=True)
 
-    random_values, perturbated_data = perturbate(sample.x, "barycenter_z", max_val=10, num_data=20)
-    for i, data in enumerate(perturbated_data):
-        nn_pred = model.forward(data, sample.edge_features, sample.edge_index, device=device)
-         
-        y_pred = (nn_pred > model.threshold).squeeze()
-        graph_pred = sample.edge_index[y_pred]
+    # TODO: How to work with negative postions in map???
+    trackstersSignal.append({"eta": torch.abs(metrics["features"][~metrics["isPU"], NeoGNNDataset.node_feature_dict["barycenter_eta"]].cpu()),
+                       "phi": metrics["features"][~metrics["isPU"], NeoGNNDataset.node_feature_dict["barycenter_phi"]].cpu(),
+                       "z": torch.abs(metrics["features"][~metrics["isPU"], NeoGNNDataset.node_feature_dict["barycenter_z"]].cpu()),
+                       "energy": metrics["features"][~metrics["isPU"], NeoGNNDataset.node_feature_dict["raw_energy"]].cpu(),
 
-        pred_components, pred_component_features = calc_overlapping_components(graph_pred, sample.x, true_components, device=device)
-        energy_diff = true_component_features[:, NeoGNNDataset.node_feature_dict["raw_energy"]] - pred_component_features[:, NeoGNNDataset.node_feature_dict["raw_energy"]]
-        print(f"{random_values[i]:.05f}: {baseline_energy_diff}")
-        tracksters.append({"eta": pred_component_features[:, NeoGNNDataset.node_feature_dict["barycenter_eta"]].cpu(),
-                           "phi":pred_component_features[:, NeoGNNDataset.node_feature_dict["barycenter_phi"]].cpu(),
-                           "z":pred_component_features[:, NeoGNNDataset.node_feature_dict["barycenter_z"]].cpu(),
-                           "values": (energy_diff - baseline_energy_diff).cpu(),
-                           "label": f"{random_values[i]:.05f}"})
+                       "dU": metrics["comp_dU_Signal"],
+                       "dO": metrics["comp_dO_Signal"],
+                       "full_energy": metrics["energy_Signal"],
+                       "label": f"Graph {i}"})
 
-    plot_graphs_heatmap(tracksters, mode="3d", file="heatmap", folder='/eos/user/c/czeh/stabilityCheck/')
-    plot_graphs_heatmap_interp(tracksters, file="cont_map", folder='/eos/user/c/czeh/stabilityCheck/')
+    trackstersPU.append({"eta": torch.abs(metrics["features"][metrics["isPU"], NeoGNNDataset.node_feature_dict["barycenter_eta"]].cpu()),
+                       "phi": metrics["features"][metrics["isPU"], NeoGNNDataset.node_feature_dict["barycenter_phi"]].cpu(),
+                       "z": torch.abs(metrics["features"][metrics["isPU"], NeoGNNDataset.node_feature_dict["barycenter_z"]].cpu()),
+                       "energy": metrics["features"][metrics["isPU"], NeoGNNDataset.node_feature_dict["raw_energy"]].cpu(),
 
-    break
+                       "dU": metrics["comp_dU_PU"],
+                       "dO": metrics["comp_dO_PU"],
+                       "full_energy": metrics["energy_PU"],
+                       "label": f"Graph {i}"})
+
+    if i == 4:
+        break
+    i += 1
+plot_graphs_heatmap(trackstersSignal, mode="3d", values="dO", file="dO_Signal", folder='/eos/user/c/czeh/stabilityCheck/')
+plot_graphs_heatmap(trackstersSignal, mode="3d", values="dU", file="dU_Signal", folder='/eos/user/c/czeh/stabilityCheck/')
+plot_graphs_heatmap(trackstersPU, mode="3d", values="dU", file="dU_PU", folder='/eos/user/c/czeh/stabilityCheck/')
+plot_graphs_heatmap(trackstersPU, mode="3d", values="dO", file="dO_PU", folder='/eos/user/c/czeh/stabilityCheck/')
+plot_graphs_heatmap_interp(trackstersSignal, values="dO", file="cont_map_dO_Signal", folder='/eos/user/c/czeh/stabilityCheck/')
+plot_graphs_heatmap_interp(trackstersSignal, values="dU", file="cont_map_dU_Signal", folder='/eos/user/c/czeh/stabilityCheck/')
+plot_graphs_heatmap_interp(trackstersPU, values="dU", file="cont_map_dU_PU", folder='/eos/user/c/czeh/stabilityCheck/')
+plot_graphs_heatmap_interp(trackstersPU, values="dO", file="cont_map_dO_PU", folder='/eos/user/c/czeh/stabilityCheck/')
+
