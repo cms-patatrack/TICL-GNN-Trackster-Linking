@@ -111,7 +111,6 @@ class NeoGNNDataset(Dataset):
             if (self.test):
                 files = glob(f"{self.histo_path}/test/*.root")
             else:
-                print("here")
                 files = glob(f"{self.histo_path}/train/*.root")
                 self.node_scaler = torch.zeros(len(self.model_feature_keys), device=self.device) 
                 self.edge_scaler = torch.zeros(len(self.edge_feature_keys), device=self.device)
@@ -126,7 +125,6 @@ class NeoGNNDataset(Dataset):
 
                 allGNNtrain = load_branch_with_highest_cycle(file, 'ticlDumperGNN/GNNTraining')
                 allGNNtrain_array = allGNNtrain.arrays()
-                print(allGNNtrain_array)
 
                 for event in allGNNtrain_array:
                     nTracksters = len(event["node_barycenter_x"])
@@ -143,13 +141,13 @@ class NeoGNNDataset(Dataset):
                         y[PU_info[:, 2]] = 0
 
                     data = Data(
-                        x=torch.utils.dlpack.from_dlpack(features.toDlpack()).float(),
+                        x=torch.as_tensor(features, device=self.device).float(),
                         num_nodes=nTracksters, 
-                        edge_index=torch.utils.dlpack.from_dlpack(edges.toDlpack()).long(),
-                        edge_features=torch.utils.dlpack.from_dlpack(edge_features.toDlpack()).float(),
-                        y=torch.utils.dlpack.from_dlpack(y.toDlpack()).float(),
-                        isPU=torch.utils.dlpack.from_dlpack(isPU.toDlpack()).int(),
-                        PU_info=torch.utils.dlpack.from_dlpack(PU_info.toDlpack()).bool())
+                        edge_index=torch.as_tensor(edges, device=self.device).long(),
+                        edge_features=torch.as_tensor(edge_features, device=self.device).float(),
+                        y=torch.as_tensor(y, device=self.device).float(),
+                        isPU=torch.as_tensor(isPU, device=self.device).int(),
+                        PU_info=torch.as_tensor(PU_info, device=self.device).bool())
                     torch.save(data, osp.join(self.processed_dir, f'data_{idx}.pt'))
 
                     idx += 1

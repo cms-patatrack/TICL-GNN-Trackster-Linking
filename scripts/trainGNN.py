@@ -19,10 +19,10 @@ load_weights = False
 model_name = "model_2025-08-14_final_loss_0.6184_epoch_20_dict"
 
 base_folder = "/home/czeh"
-model_folder = osp.join(base_folder, "GNN/modelPU")
-hist_folder = osp.join(base_folder, "histo_fullPU")
-data_folder_training = osp.join(base_folder, "GNN/datasetPU_hardronics")
-data_folder_test = osp.join(base_folder, "GNN/datasetPU_hardronics_test")
+model_folder = osp.join(base_folder, "GNN/model")
+hist_folder = osp.join(base_folder, "new_graph_histo")
+data_folder_training = osp.join(base_folder, "GNN/dataset_hardronics")
+data_folder_test = osp.join(base_folder, "GNN/dataset_hardronics_test")
 os.makedirs(model_folder, exist_ok=True)
 
 # Prepare Dataset

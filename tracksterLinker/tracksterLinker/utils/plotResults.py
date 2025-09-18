@@ -10,12 +10,7 @@ from sklearn.utils.class_weight import compute_sample_weight
 from sklearn.metrics import class_likelihood_ratios, precision_recall_fscore_support, accuracy_score
 from tracksterLinker.utils.dataStatistics import weighted_precision_recall_f1, weighted_precision_recall_f1_from_precalc
 
-
 import seaborn as sn
-import mplhep as hep
-
-
-plt.style.use(hep.style.CMS)
 """Testing of the trained models."""
 
 
@@ -68,7 +63,6 @@ def plot_binned_validation_results(pred, y, weights, thres=0.65, output_folder=N
             rec = recall_score(y_discrete[in_bin].numpy(), pred_discrete[in_bin].numpy())
             bin_vals.append((float(bin_edges[i]), float(bin_edges[i+1]), acc, prec, rec))
             plot_validation_results(pred[in_bin], y[in_bin], thres, weight=weights[in_bin], file_suffix=f"{file_suffix}_bin_{float(bin_edges[i])}_{float(bin_edges[i+1])}", output_folder=output_folder)
-        else:
 
     for low, high, acc, prec, rec in bin_vals:
         if acc != None:
