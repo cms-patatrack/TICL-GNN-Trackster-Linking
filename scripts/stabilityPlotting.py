@@ -22,7 +22,7 @@ model_name = "model-08-21"
 
 base_folder = "/home/czeh"
 model_folder = osp.join(base_folder, "GNN/model")
-output_folder = "/eos/user/c/czeh/stabilityCheck/perturbations"
+output_folder = "/eos/user/c/czeh/stabilityCheck/energy_perturbations"
 hist_folder = osp.join(base_folder, "GNN/full_PU")
 data_folder = osp.join(base_folder, "GNN/datasetPU")
 os.makedirs(model_folder, exist_ok=True)
@@ -51,24 +51,23 @@ files = glob(osp.join(output_folder, "*", f"*.pt"), recursive=True)
 graph_folders = glob(osp.join(output_folder, "*"))
 
 for graph_path in graph_folders:
-    if (not os.path.isdir(graph_path)):
+    if (not os.path.isdir(graph_path) or not os.path.isfile(osp.join(graph_path, f"baseline.pt"))):
         continue
 
     baseline_metrics = torch.load(osp.join(graph_path, f"baseline.pt"), weights_only=False)
 
     files = glob(osp.join(graph_path, f"graph_*.pt"), recursive=True)
-    print(files)
-
     for file in files:
         print(file)
         metrics = torch.load(file, weights_only=False)
+        #print(torch.max(metrics["features"][:, NeoGNNDataset.node_feature_dict["barycenter_eta"]]))
         
         hm_dU_signal.add_graph(torch.abs(metrics["features"][~metrics["isPU"], NeoGNNDataset.node_feature_dict["barycenter_eta"]]).cpu(), metrics["features"][~metrics["isPU"], NeoGNNDataset.node_feature_dict["barycenter_phi"]].cpu(), baseline_metrics["comp_dU_Signal"] - metrics["comp_dU_Signal"])
         hm_dO_signal.add_graph(torch.abs(metrics["features"][~metrics["isPU"], NeoGNNDataset.node_feature_dict["barycenter_eta"]]).cpu(), metrics["features"][~metrics["isPU"], NeoGNNDataset.node_feature_dict["barycenter_phi"]].cpu(), baseline_metrics["comp_dO_Signal"] - metrics["comp_dO_Signal"])
         hm_dU_PU.add_graph(torch.abs(metrics["features"][metrics["isPU"], NeoGNNDataset.node_feature_dict["barycenter_eta"]]).cpu(), metrics["features"][metrics["isPU"], NeoGNNDataset.node_feature_dict["barycenter_phi"]].cpu(), baseline_metrics["comp_dU_PU"] - metrics["comp_dU_PU"])
         hm_dO_PU.add_graph(torch.abs(metrics["features"][metrics["isPU"], NeoGNNDataset.node_feature_dict["barycenter_eta"]]).cpu(), metrics["features"][metrics["isPU"], NeoGNNDataset.node_feature_dict["barycenter_phi"]].cpu(), baseline_metrics["comp_dO_PU"] - metrics["comp_dO_PU"])
 
-hm_dU_signal.plot(show_nodes=True, file="multi_heat_dU_signal", folder=output_folder)
-hm_dO_signal.plot(show_nodes=True, file="multi_heat_dO_signal", folder=output_folder)
-hm_dU_PU.plot(show_nodes=True, file="multi_heat_dU_PU", folder=output_folder)
-hm_dO_PU.plot(show_nodes=True, file="multi_heat_dO_PU", folder=output_folder)
+hm_dU_signal.plot(show_nodes=False, file="multi_heat_dU_signal", folder=output_folder)
+hm_dO_signal.plot(show_nodes=False, file="multi_heat_dO_signal", folder=output_folder)
+hm_dU_PU.plot(show_nodes=False, file="multi_heat_dU_PU", folder=output_folder)
+hm_dO_PU.plot(show_nodes=False, file="multi_heat_dO_PU", folder=output_folder)

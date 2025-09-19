@@ -5,6 +5,9 @@ import matplotlib.pyplot as plt
 from scipy.interpolate import griddata
 from collections import defaultdict
 
+from scipy.spatial import cKDTree
+import numpy.ma as ma
+
 class GraphHeatmap:
     def __init__(self, resolution=200):
         """
@@ -44,28 +47,36 @@ class GraphHeatmap:
         values = np.array([v[0] for v in self.data.values()])
         return eta, phi, values
 
-    def plot(self, show_nodes=False, file=None, folder=None):
+    def plot(self, show_nodes=False, max_distance=0.1, file=None, folder=None):
         """Plot the combined interpolated heatmap."""
         eta, phi, values = self._get_arrays()
 
         # Grid for interpolation
-        grid_eta = np.linspace(min(eta), max(eta), self.resolution)
-        grid_phi = np.linspace(min(phi), max(phi), self.resolution)
+        grid_eta = np.linspace(1.5, 3.1, self.resolution)
+        grid_phi = np.linspace(-3.14, 3.14, self.resolution)
         grid_eta, grid_phi = np.meshgrid(grid_eta, grid_phi)
 
         print(len(eta))
         grid_values = griddata(
             (eta, phi), values,
             (grid_eta, grid_phi),
-            method="cubic", fill_value=np.nan
+            method="nearest", fill_value=np.nan
         )
         print("after")
+
+        tree = cKDTree(np.c_[eta, phi])
+        dist, _ = tree.query(np.c_[grid_eta.ravel(), grid_phi.ravel()])
+        dist = dist.reshape(grid_eta.shape)
+
+        # Mask out far-away cells
+        grid_values = ma.masked_where(dist > max_distance, grid_values)
+
 
         # Plot
         fig, ax = plt.subplots(figsize=(8, 6))
         im = ax.imshow(
             grid_values, origin="lower", aspect="auto",
-            extent=(min(eta), max(eta), min(phi), max(phi)),
+            extent=(1.5, 3.1, -3.14, 3.14),
             cmap="GnBu", vmin=0
         )
         fig.colorbar(im, ax=ax, label="Value")
