@@ -11,7 +11,7 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch_geometric.loader.dataloader import DataLoader
 import matplotlib.pyplot as plt
 
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import torch.multiprocessing as mp
 
 from tracksterLinker.datasets.NeoGNNDataset import NeoGNNDataset
@@ -20,6 +20,11 @@ from tracksterLinker.utils.graphUtils import *
 from tracksterLinker.utils.graphMetric import *
 
 from tracksterLinker.utils.perturbations.allNodes import perturbate
+
+def wait_some(futures):
+    """Wait until at least one future completes, return (done, not_done)."""
+    done, not_done = wait(futures, return_when=FIRST_COMPLETED)
+    return done, list(not_done)
 
 def compute_and_save(graph_true, graph_pred, data, isPU, device, verbose, path, extra_metrics=None):
     metrics = graph_dist(graph_true, graph_pred, data, isPU, device=device, verbose=verbose)
@@ -34,7 +39,7 @@ if __name__ == "__main__":
 
     base_folder = "/home/czeh"
     model_folder = osp.join(base_folder, "GNN/model")
-    output_folder = "/eos/user/c/czeh/stabilityCheck/perturbations"
+    output_folder = "/eos/user/c/czeh/stabilityCheck/energy_perturbations"
     hist_folder = osp.join(base_folder, "GNN/full_PU")
     data_folder = osp.join(base_folder, "GNN/datasetPU")
     os.makedirs(model_folder, exist_ok=True)
@@ -79,7 +84,7 @@ if __name__ == "__main__":
             #metrics = graph_dist(graph_true, graph_pred, sample.x, sample.isPU, device=device, verbose=True)
             #torch.save(metrics, osp.join(output_folder, f"{i}", f"baseline.pt"))
 
-            random_values, perturbated_data = perturbate(sample.x, "barycenter_eta", max_val=0.1, num_data=n_perturb)
+            random_values, perturbated_data = perturbate(sample.x, "raw_energy", max_val=10, num_data=n_perturb)
 
             for j, data in enumerate(perturbated_data):
                 print(f"Perturbated Graph {j}: {random_values[j]}")
@@ -97,13 +102,17 @@ if __name__ == "__main__":
                     osp.join(output_folder, f"{i}", f"graph_{j}.pt"),
                     {"allNodes_perturb": random_values[j]},
                 ))
-                #metrics = graph_dist(graph_true, graph_pred, data, sample.isPU, device=device, verbose=True)
-                #metrics["allNodes_perturb"] = random_values[i]
-                #torch.save(metrics, osp.join(output_folder, f"{i}", f"graph_{j}.pt"))
-                
-            i += 1
 
-            if i == 20:
+            if len(futures) > 2 * max_workers:
+                done, futures = wait_some(futures)
+                for f in done:
+                    try:
+                        print(f"[OK] Saved: {f.result()}")
+                    except Exception as e:
+                        print(f"[ERROR in worker] {e}")
+
+            i += 1
+            if i == 100:
                 break
 
 

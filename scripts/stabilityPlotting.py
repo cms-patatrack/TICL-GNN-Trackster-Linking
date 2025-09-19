@@ -68,7 +68,7 @@ for graph_path in graph_folders:
         hm_dU_PU.add_graph(torch.abs(metrics["features"][metrics["isPU"], NeoGNNDataset.node_feature_dict["barycenter_eta"]]).cpu(), metrics["features"][metrics["isPU"], NeoGNNDataset.node_feature_dict["barycenter_phi"]].cpu(), baseline_metrics["comp_dU_PU"] - metrics["comp_dU_PU"])
         hm_dO_PU.add_graph(torch.abs(metrics["features"][metrics["isPU"], NeoGNNDataset.node_feature_dict["barycenter_eta"]]).cpu(), metrics["features"][metrics["isPU"], NeoGNNDataset.node_feature_dict["barycenter_phi"]].cpu(), baseline_metrics["comp_dO_PU"] - metrics["comp_dO_PU"])
 
-hm_dU_signal.plot(show_nodes=False, file="multi_heat_dU_signal", folder=output_folder)
-hm_dO_signal.plot(show_nodes=False, file="multi_heat_dO_signal", folder=output_folder)
-hm_dU_PU.plot(show_nodes=False, file="multi_heat_dU_PU", folder=output_folder)
-hm_dO_PU.plot(show_nodes=False, file="multi_heat_dO_PU", folder=output_folder)
+hm_dU_signal.plot(show_nodes=True, file="multi_heat_dU_signal", folder=output_folder)
+hm_dO_signal.plot(show_nodes=True, file="multi_heat_dO_signal", folder=output_folder)
+hm_dU_PU.plot(show_nodes=True, file="multi_heat_dU_PU", folder=output_folder)
+hm_dO_PU.plot(show_nodes=True, file="multi_heat_dO_PU", folder=output_folder)
