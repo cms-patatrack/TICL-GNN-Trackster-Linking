@@ -78,50 +78,55 @@ def plot_graphs_heatmap(graphs, mode="3d", values="values", file=None, folder=No
 
 
 def plot_graphs_heatmap_interp(graphs, values="values", resolution=200, file=None, folder=None):
-    """
-    Interpolated 2D heatmap for multiple graphs (eta vs phi).
+    eta_all = []
+    phi_all = []
+    val_all = []
+    labels = []
+
+    for g in graphs:
+        eta_all.extend(g["eta"])
+        phi_all.extend(g["phi"])
+        val_all.extend(g[values])
+        labels.extend([g.get("label", "Graph")] * len(g["eta"]))
+
+    eta_all = np.array(eta_all)
+    phi_all = np.array(phi_all)
+    val_all = np.array(val_all)
+    labels = np.array(labels)
+
+    # --- average duplicates ---
+    buckets = defaultdict(list)
+    for e, p, v in zip(eta_all, phi_all, val_all):
+        buckets[(round(e,5), round(p,5))].append(v)  # round for numerical stability
+
+    eta_unique = np.array([k[0] for k in buckets.keys()])
+    phi_unique = np.array([k[1] for k in buckets.keys()])
+    val_unique = np.array([np.mean(vs) for vs in buckets.values()])
+
+    # --- grid for interpolation ---
+    grid_eta = np.linspace(min(eta_unique), max(eta_unique), resolution)
+    grid_phi = np.linspace(min(phi_unique), max(phi_unique), resolution)
+    grid_eta, grid_phi = np.meshgrid(grid_eta, grid_phi)
+
+    grid_values = griddata(
+        (eta_unique, phi_unique), val_unique,
+        (grid_eta, grid_phi), method="cubic", fill_value=np.nan
+    )
     
-    Parameters
-    ----------
-    graphs : list of dict
-        Each dict must have keys:
-        - 'eta': array of eta positions
-        - 'phi': array of phi positions
-        - 'values': array of values
-        - 'label': name of the graph
-    resolution : int
-        Grid resolution for interpolation.
-    """
+    fig, ax = plt.subplots(figsize=(8,6))
+    # Plot heatmap
+    im = ax.imshow(
+        grid_values, origin="lower", aspect="auto",
+        extent=(min(eta_unique), max(eta_unique), min(phi_unique), max(phi_unique)),
+        cmap="GnBu"
+    )
     
-    fig, axes = plt.subplots(1, len(graphs), figsize=(6*len(graphs), 5))
-    if len(graphs) == 1:
-        axes = [axes]
-    
-    for ax, g in zip(axes, graphs):
-        # Grid for interpolation
-        grid_eta = np.linspace(min(g["eta"]), max(g["eta"]), resolution)
-        grid_phi = np.linspace(min(g["phi"]), max(g["phi"]), resolution)
-        grid_eta, grid_phi = np.meshgrid(grid_eta, grid_phi)
-        
-        # Interpolation
-        grid_values = griddata(
-            (g["eta"], g["phi"]), g[values] * g["energy"],
-            (grid_eta, grid_phi), method="cubic", fill_value=np.nan
-        )
-        
-        # Plot heatmap
-        im = ax.imshow(
-            grid_values, origin="lower", aspect="auto",
-            extent=(min(g["eta"]), max(g["eta"]), min(g["phi"]), max(g["phi"])),
-            cmap="GnBu"
-        )
-        
-        ax.set_title(g.get("label", "Graph"))
-        ax.set_xlabel("eta")
-        ax.set_ylabel("phi")
+    ax.set_title(g.get("label", "Graph"))
+    ax.set_xlabel("eta")
+    ax.set_ylabel("phi")
     
     # Shared colorbar
-    fig.colorbar(im, ax=axes, label=value)
+    fig.colorbar(im, ax=axes, label=values)
     if file is None and folder is None:
         plt.show()
     else:

@@ -1,6 +1,7 @@
 import os.path as osp
 import os
 from datetime import datetime
+import json
 
 import awkward as ak
 
@@ -10,81 +11,102 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch_geometric.loader.dataloader import DataLoader
 import matplotlib.pyplot as plt
 
+from concurrent.futures import ProcessPoolExecutor
+import torch.multiprocessing as mp
+
 from tracksterLinker.datasets.NeoGNNDataset import NeoGNNDataset
 from tracksterLinker.utils.dataStatistics import *
 from tracksterLinker.utils.graphUtils import *
 from tracksterLinker.utils.graphMetric import *
 
 from tracksterLinker.utils.perturbations.allNodes import perturbate
-from tracksterLinker.utils.perturbations.stabilityMap import *
 
-model_name = "model-08-21"
+def compute_and_save(graph_true, graph_pred, data, isPU, device, verbose, path, extra_metrics=None):
+    metrics = graph_dist(graph_true, graph_pred, data, isPU, device=device, verbose=verbose)
+    if extra_metrics is not None:
+        metrics.update(extra_metrics)
+    torch.save(metrics, path)
+    return path
 
-base_folder = "/home/czeh"
-model_folder = osp.join(base_folder, "GNN/model")
-hist_folder = osp.join(base_folder, "GNN/full_PU")
-data_folder = osp.join(base_folder, "GNN/datasetPU")
-os.makedirs(model_folder, exist_ok=True)
+if __name__ == "__main__":
+    mp.set_start_method("spawn", force=True)
+    model_name = "model-08-21"
 
-# Prepare Dataset
-batch_size = 1
-dataset = NeoGNNDataset(data_folder, hist_folder, test=True)
-data_loader = DataLoader(dataset, shuffle=True, batch_size=batch_size)
+    base_folder = "/home/czeh"
+    model_folder = osp.join(base_folder, "GNN/model")
+    output_folder = "/eos/user/c/czeh/stabilityCheck/perturbations"
+    hist_folder = osp.join(base_folder, "GNN/full_PU")
+    data_folder = osp.join(base_folder, "GNN/datasetPU")
+    os.makedirs(model_folder, exist_ok=True)
 
-# CUDA Setup
-device = torch.device('cuda' if torch.cuda.is_available() else "cpu")
-# device = torch.device("cpu")
-print(f"Using device: {device}")
+    # Prepare Dataset
+    batch_size = 1
+    dataset = NeoGNNDataset(data_folder, hist_folder, test=True)
+    data_loader = DataLoader(dataset, shuffle=True, batch_size=batch_size)
 
-# Prepare Model
-model = jit.load(osp.join(model_folder, f"{model_name}.pt"))
-model = model.to(device)
-model.eval()
+    # CUDA Setup
+    device = torch.device('cuda' if torch.cuda.is_available() else "cpu")
+    # device = torch.device("cpu")
+    print(f"Using device: {device}")
 
-i = 0
-for sample in data_loader:
-    trackstersPU = []
-    trackstersSignal = []
-    nn_pred = model.forward(sample.x, sample.edge_features, sample.edge_index, device=device)
-     
-    y_pred = (nn_pred > model.threshold).squeeze()
-    y_true = (sample.y > 0).squeeze()
+    # Prepare Model
+    model = jit.load(osp.join(model_folder, f"{model_name}.pt"))
+    model = model.to(device)
+    model.eval()
+    i = 0
 
-    graph_true = sample.edge_index[y_true]
-    graph_pred = sample.edge_index[y_pred]
+    n_perturb = 30
+    futures = []
+    with ProcessPoolExecutor(max_workers=min(32, n_perturb+1)) as executor:
+        for sample in data_loader:
+            print(f"Graph {i}")
+            nn_pred = model.forward(sample.x, sample.edge_features, sample.edge_index, device=device)
+             
+            y_pred = (nn_pred > model.threshold).squeeze()
+            y_true = (sample.y > 0).squeeze()
 
-    metrics = graph_dist(graph_true, graph_pred, sample.x, sample.isPU, device=device, verbose=True)
+            graph_true = sample.edge_index[y_true]
+            graph_pred = sample.edge_index[y_pred]
 
-    # TODO: How to work with negative postions in map???
-    trackstersSignal.append({"eta": torch.abs(metrics["features"][~metrics["isPU"], NeoGNNDataset.node_feature_dict["barycenter_eta"]].cpu()),
-                       "phi": metrics["features"][~metrics["isPU"], NeoGNNDataset.node_feature_dict["barycenter_phi"]].cpu(),
-                       "z": torch.abs(metrics["features"][~metrics["isPU"], NeoGNNDataset.node_feature_dict["barycenter_z"]].cpu()),
-                       "energy": metrics["features"][~metrics["isPU"], NeoGNNDataset.node_feature_dict["raw_energy"]].cpu(),
+            os.makedirs(osp.join(output_folder, f"{i}"), exist_ok=True)
 
-                       "dU": metrics["comp_dU_Signal"],
-                       "dO": metrics["comp_dO_Signal"],
-                       "full_energy": metrics["energy_Signal"],
-                       "label": f"Graph {i}"})
+            futures.append(executor.submit(
+                compute_and_save,
+                graph_true, graph_pred, sample.x, sample.isPU, device, True,
+                osp.join(output_folder, f"{i}", "baseline.pt"),
+            ))
 
-    trackstersPU.append({"eta": torch.abs(metrics["features"][metrics["isPU"], NeoGNNDataset.node_feature_dict["barycenter_eta"]].cpu()),
-                       "phi": metrics["features"][metrics["isPU"], NeoGNNDataset.node_feature_dict["barycenter_phi"]].cpu(),
-                       "z": torch.abs(metrics["features"][metrics["isPU"], NeoGNNDataset.node_feature_dict["barycenter_z"]].cpu()),
-                       "energy": metrics["features"][metrics["isPU"], NeoGNNDataset.node_feature_dict["raw_energy"]].cpu(),
+            #metrics = graph_dist(graph_true, graph_pred, sample.x, sample.isPU, device=device, verbose=True)
+            #torch.save(metrics, osp.join(output_folder, f"{i}", f"baseline.pt"))
 
-                       "dU": metrics["comp_dU_PU"],
-                       "dO": metrics["comp_dO_PU"],
-                       "full_energy": metrics["energy_PU"],
-                       "label": f"Graph {i}"})
+            random_values, perturbated_data = perturbate(sample.x, "barycenter_eta", max_val=0.1, num_data=n_perturb)
 
-    if i == 4:
-        break
-    i += 1
-plot_graphs_heatmap(trackstersSignal, mode="3d", values="dO", file="dO_Signal", folder='/eos/user/c/czeh/stabilityCheck/')
-plot_graphs_heatmap(trackstersSignal, mode="3d", values="dU", file="dU_Signal", folder='/eos/user/c/czeh/stabilityCheck/')
-plot_graphs_heatmap(trackstersPU, mode="3d", values="dU", file="dU_PU", folder='/eos/user/c/czeh/stabilityCheck/')
-plot_graphs_heatmap(trackstersPU, mode="3d", values="dO", file="dO_PU", folder='/eos/user/c/czeh/stabilityCheck/')
-plot_graphs_heatmap_interp(trackstersSignal, values="dO", file="cont_map_dO_Signal", folder='/eos/user/c/czeh/stabilityCheck/')
-plot_graphs_heatmap_interp(trackstersSignal, values="dU", file="cont_map_dU_Signal", folder='/eos/user/c/czeh/stabilityCheck/')
-plot_graphs_heatmap_interp(trackstersPU, values="dU", file="cont_map_dU_PU", folder='/eos/user/c/czeh/stabilityCheck/')
-plot_graphs_heatmap_interp(trackstersPU, values="dO", file="cont_map_dO_PU", folder='/eos/user/c/czeh/stabilityCheck/')
+            for j, data in enumerate(perturbated_data):
+                print(f"Perturbated Graph {j}: {random_values[j]}")
+                nn_pred = model.forward(data, sample.edge_features, sample.edge_index, device=device)
+                 
+                y_pred = (nn_pred > model.threshold).squeeze()
+                y_true = (sample.y > 0).squeeze()
 
+                graph_true = sample.edge_index[y_true]
+                graph_pred = sample.edge_index[y_pred]
+
+                futures.append(executor.submit(
+                    compute_and_save,
+                    graph_true, graph_pred, data, sample.isPU, device, True,
+                    osp.join(output_folder, f"{i}", f"graph_{j}.pt"),
+                    {"allNodes_perturb": random_values[j]},
+                ))
+                #metrics = graph_dist(graph_true, graph_pred, data, sample.isPU, device=device, verbose=True)
+                #metrics["allNodes_perturb"] = random_values[i]
+                #torch.save(metrics, osp.join(output_folder, f"{i}", f"graph_{j}.pt"))
+                
+            i += 1
+
+            if i == 20:
+                break
+
+
+        for f in as_completed(futures):
+            f.result()
+            pbar.update()
