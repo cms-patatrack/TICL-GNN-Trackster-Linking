@@ -3,7 +3,7 @@ import numpy as np
 
 import torch
 
-from tracksterLinker.GNN.TrackLinkingNet import FocalLoss
+from tracksterLinker.GNN.LossFunctions import FocalLoss
 from tracksterLinker.datasets.GNNDataset import GNNDataset
 from tracksterLinker.utils.dataUtils import calc_weights
 
@@ -13,14 +13,15 @@ def train(model, opt, loader, epoch, weighted="raw_energy", scores=False, emb_ou
 
     model.train()
     for sample in tqdm(loader, desc=f"Training Epoch {epoch}"):
+
         # reset optimizer and enable training mode
         opt.zero_grad()
-        z = model.forward(sample.x, sample.edge_features, sample.edge_index, device=device)
+        emb, z = model.run(sample.x, sample.edge_features, sample.edge_index, device=device)
         weights = calc_weights(sample.edge_index, sample.x, GNNDataset.node_feature_dict, name=weighted)
 
         # compute the loss
         if scores:
-            loss = loss_obj(z.squeeze(-1), sample.y, weights)
+            loss = loss_obj(z.squeeze(-1), emb.squeeze(-1), sample.y, weights)
         else:
             loss = loss_obj(z.squeeze(-1), torch.ceil(sample.y), weights)
 
@@ -44,7 +45,7 @@ def test(model, loader, epoch, weighted="raw_energy", scores=False, loss_obj=Foc
         pu_edges = torch.zeros(4, device=device)
             
         for sample in tqdm(loader, desc=f"Validation Epoch {epoch}"):
-            nn_pred = model.forward(sample.x, sample.edge_features, sample.edge_index, device=device)
+            nn_emb, nn_pred = model.run(sample.x, sample.edge_features, sample.edge_index, device=device)
             weights = calc_weights(sample.edge_index, sample.x, GNNDataset.node_feature_dict, name=weighted)
 
             y_pred = (nn_pred > model.threshold).squeeze()
@@ -66,7 +67,7 @@ def test(model, loader, epoch, weighted="raw_energy", scores=False, loss_obj=Foc
             pu_edges[3] += torch.sum(weights[sample.PU_info[:, 2]] * (~y_true[sample.PU_info[:, 2]] & ~y_pred[sample.PU_info[:, 2]])).item()
             
             if scores:
-                val_loss += loss_obj(nn_pred.squeeze(-1), sample.y, weights).item()
+                val_loss += loss_obj(nn_pred.squeeze(-1), nn_emb.squeeze(-1), sample.y, weights).item()
             else:
                 val_loss += loss_obj(nn_pred.squeeze(-1), torch.ceil(sample.y), weights).item()
 
@@ -84,7 +85,7 @@ def validate(model, loader, epoch, weighted="raw_energy", scores=False, loss_obj
         PU_info = [[], [], []]
             
         for sample in tqdm(loader, desc=f"Validation Epoch {epoch}"):
-            nn_pred = model.forward(sample.x, sample.edge_features, sample.edge_index, device=device)
+            nn_emb, nn_pred = model.run(sample.x, sample.edge_features, sample.edge_index, device=device)
             pred += nn_pred.squeeze(-1).tolist()
             y += sample.y.tolist()
             weight = calc_weights(sample.edge_index, sample.x, GNNDataset.node_feature_dict, name=weighted)
@@ -95,7 +96,7 @@ def validate(model, loader, epoch, weighted="raw_energy", scores=False, loss_obj
             PU_info[2] += sample.PU_info[:, 2].tolist()
             
             if scores:
-                val_loss += loss_obj(nn_pred.squeeze(-1), sample.y, weight).item()
+                val_loss += loss_obj(nn_pred.squeeze(-1), nn_emb.squeeze(-1), sample.y, weight).item()
             else:
                 val_loss += loss_obj(nn_pred.squeeze(-1), torch.ceil(sample.y), weight).item()
 

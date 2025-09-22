@@ -25,46 +25,21 @@ class EarlyStopping:
         self.best_model_state = None
 
     def __call__(self, model, val_loss):
-        score = -val_loss
         if self.best_score is None:
-            self.best_score = score
+            self.best_score = val_loss
             self.best_model_state = model.state_dict()
-        elif score < self.best_score + self.delta:
+        elif val_loss > self.best_score + self.delta:
             self.counter += 1
             if self.counter >= self.patience:
                 self.early_stop = True
         else:
-            self.best_score = score
-            self.best_model_state = model.state_dict()
+            if val_loss < self.best_score:
+                self.best_score = val_loss
+                self.best_model_state = model.state_dict()
             self.counter = 0
 
     def load_best_model(self, model):
         model.load_state_dict(self.best_model_state)
-
-
-class FocalLoss(nn.Module):
-    def __init__(self, gamma=2, alpha=0.4):
-        super(FocalLoss, self).__init__()
-        self.gamma = gamma
-        self.alpha = alpha
-
-    def forward(self, predictions, targets, weights):
-        """Binary focal loss, mean.
-
-        Per https://discuss.pytorch.org/t/is-this-a-correct-implementation-for-focal-loss-in-pytorch/43327/5 with
-        improvements for alpha.
-        :param bce_loss: Binary Cross Entropy loss, a torch tensor.
-        :param targets: a torch tensor containing the ground truth, 0s and 1s.
-        :param gamma: focal loss power parameter, a float scalar.
-        :param alpha: weight of the class indicated by 1, a float scalar.
-        """
-        ce_loss = F.binary_cross_entropy(predictions, targets, reduction='none', weight=weights)
-        p_t = torch.exp(-ce_loss)
-        alpha_tensor = (1 - self.alpha) + targets * (2 * self.alpha - 1)
-        # alpha if target = 1 and 1 - alpha if target = 0
-        f_loss = (alpha_tensor * (1 - p_t) ** self.gamma * ce_loss).mean()
-        return f_loss
-
 
 class GNN_TrackLinkingNet(nn.Module):
     def __init__(self, input_dim=19, hidden_dim=16, output_dim=1, niters=2, dropout=0.2,
@@ -131,11 +106,18 @@ class GNN_TrackLinkingNet(nn.Module):
                       edge_hidden_dim, hidden_dim),
             nn.LeakyReLU(),
             nn.Dropout(dropout),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.Sigmoid()
+        )
+
+        self.outputnetwork = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.LeakyReLU(),
             nn.Linear(hidden_dim, output_dim),
             nn.Sigmoid()
         )
 
-    def forward(self, X, edge_features, edge_index, device:torch.device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
+    def run(self, X, edge_features, edge_index, device:torch.device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
         edge_features = (edge_features + 10e-5) / self.edge_scaler
         X = X / self.node_scaler
         edge_features_NN = self.edge_inputnetwork(edge_features)
@@ -159,9 +141,9 @@ class GNN_TrackLinkingNet(nn.Module):
         dst_emb = node_emb.index_select(0, dst)
 
         edge_emb = torch.cat([src_emb, dst_emb, edge_features_NN, edge_features], dim=-1)
-        pred = self.edgenetwork(edge_emb)
-        return pred
+        embedding = self.edgenetwork(edge_emb)
+        return embedding, self.outputnetwork(embedding)
 
-    def run(self, X, edge_features, edge_index, device:torch.device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
-        pred = self.run(X, edge_features, edge_index, device)
-        return (pred >= self.threshold).to(dtype=pred.dtype, device=pred.device)
+    def forward(self, X, edge_features, edge_index, device:torch.device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
+        embedding, pred = self.run(X, edge_features, edge_index, device)
+        return pred

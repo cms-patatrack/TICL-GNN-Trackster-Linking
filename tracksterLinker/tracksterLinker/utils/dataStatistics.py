@@ -20,8 +20,9 @@ def save_model(model, epoch, optimizer, loss, val_loss, output_folder, filename,
                 }, f"{path}_epoch_{epoch}_dict.pt")
     
     if (dummy_input is not None):
-        model_copy = copy.deepcopy(model)
-        model_copy.to("cpu")
+        #model_copy = copy.deepcopy(model)
+        model_copy = model
+        #model_copy.to("cpu")
         model_copy.eval()
         
         with torch.no_grad():
