@@ -44,8 +44,8 @@ start_epoch = 0
 epochs = 50
 
 model = GNN_TrackLinkingNet(input_dim=len(dataset_training.model_feature_keys),
-                            edge_feature_dim=dataset_training[0].edge_features.shape[1], niters=4,
-                            edge_hidden_dim=32, hidden_dim=64, weighted_aggr=True, dropout=0.3,
+                            edge_feature_dim=dataset_training[0].edge_features.shape[1], niters=2,
+                            edge_hidden_dim=16, hidden_dim=16, weighted_aggr=True, dropout=0.3,
                             node_scaler=dataset_training.node_scaler, edge_scaler=dataset_training.edge_scaler)
 model = model.to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
@@ -53,7 +53,7 @@ optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 #increase weight on positive edges just a bit more
 alpha = 0.5 + negative_edge_imbalance(dataset_test)/2
 print(f"Focal loss with alpha={alpha}")
-loss_obj = FocalLoss(alpha=alpha, gamma=2)
+loss_obj = CombinedLoss(alpha=alpha, gamma=2, margin=2.0)
 
 
 early_stopping = EarlyStopping(patience=20, delta=0)
@@ -78,7 +78,7 @@ val_loss_hist = []
 
 for epoch in range(start_epoch, start_epoch+epochs):
     print(f'Epoch: {epoch+1}')
-    loss = train(model, optimizer, train_dl, epoch+1, device=device, loss_obj=loss_obj)
+    loss = train(model, optimizer, train_dl, epoch+1, device=device, loss_obj=loss_obj, scores=True)
     train_loss_hist.append(loss)
 
     val_loss, cross_edges, signal_edges, pu_edges = test(model, test_dl, epoch+1, loss_obj=loss_obj, device=device, weighted="raw_energy")
@@ -95,6 +95,10 @@ for epoch in range(start_epoch, start_epoch+epochs):
     print("Only PU trackster:") 
     print_acc_scores_from_precalc(*pu_edges)
     
+    if ((epoch+1) % 5 == 0):
+        print("Store Model")
+        save_model(model, epoch, optimizer, train_loss_hist, val_loss_hist, output_folder=model_folder, filename=f"model_{date}", dummy_input=dataset_training[0])
+
     if ((epoch+1) % 10 == 0):
         print("Store Diagrams")
 
@@ -105,10 +109,6 @@ for epoch in range(start_epoch, start_epoch+epochs):
         print("weighted by raw energy:")
         plot_binned_validation_results(pred, y, weight, thres=threshold, output_folder=model_folder, file_suffix=f"epoch_{epoch+1}_date_{date}")
         plot_validation_results(pred, y, save=True, output_folder=model_folder, file_suffix=f"epoch_{epoch+1}_date_{date}", weight=weight)
-
-    if ((epoch+1) % 5 == 0):
-        print("Store Model")
-        save_model(model, epoch, optimizer, train_loss_hist, val_loss_hist, output_folder=model_folder, filename=f"model_{date}", dummy_input=dataset_training[0])
 
     early_stopping(model, val_loss)
     if early_stopping.early_stop:

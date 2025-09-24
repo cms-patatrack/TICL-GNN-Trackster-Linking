@@ -106,12 +106,13 @@ class GNN_TrackLinkingNet(nn.Module):
                       edge_hidden_dim, hidden_dim),
             nn.LeakyReLU(),
             nn.Dropout(dropout),
-            nn.Linear(hidden_dim, hidden_dim),
+            nn.Linear(hidden_dim, 1),
             nn.Sigmoid()
+            # nn.LeakyReLU()
         )
 
         self.outputnetwork = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim),
+            nn.Linear(hidden_dim * 3, hidden_dim),
             nn.LeakyReLU(),
             nn.Linear(hidden_dim, output_dim),
             nn.Sigmoid()
@@ -142,7 +143,8 @@ class GNN_TrackLinkingNet(nn.Module):
 
         edge_emb = torch.cat([src_emb, dst_emb, edge_features_NN, edge_features], dim=-1)
         embedding = self.edgenetwork(edge_emb)
-        return embedding, self.outputnetwork(embedding)
+        # return embedding, self.outputnetwork(embedding)
+        return None, embedding
 
     def forward(self, X, edge_features, edge_index, device:torch.device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
         embedding, pred = self.run(X, edge_features, edge_index, device)

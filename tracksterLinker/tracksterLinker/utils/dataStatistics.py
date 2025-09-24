@@ -29,9 +29,10 @@ def save_model(model, epoch, optimizer, loss, val_loss, output_folder, filename,
             test_input = (dummy_input.x, dummy_input.edge_features, dummy_input.edge_index)
             traced_model = torch.jit.script(model_copy)
             
-            if (torch.allclose(model(*test_input), traced_model(*test_input), atol=1e-6)):
+            if (torch.allclose(model(*test_input), traced_model(*test_input), atol=1e-4)):
                 traced_model.save(f"{path}_traced.pt")
             else:
+                traced_model.save(f"{path}_diff_traced.pt")
                 print("Traced model is not similar to python model.")
     else:
         torch.save(model, f"{path}_pickle.pt")

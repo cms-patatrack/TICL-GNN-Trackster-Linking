@@ -1,11 +1,13 @@
 from tqdm import tqdm
 import numpy as np
+import random
 
 import torch
 
 from tracksterLinker.GNN.LossFunctions import FocalLoss
 from tracksterLinker.datasets.GNNDataset import GNNDataset
 from tracksterLinker.utils.dataUtils import calc_weights
+from tracksterLinker.utils.perturbations.inErrorBars import perturbate
 
 def train(model, opt, loader, epoch, weighted="raw_energy", scores=False, emb_out=False, loss_obj=FocalLoss(), device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
 
@@ -21,7 +23,13 @@ def train(model, opt, loader, epoch, weighted="raw_energy", scores=False, emb_ou
 
         # compute the loss
         if scores:
-            loss = loss_obj(z.squeeze(-1), emb.squeeze(-1), sample.y, weights)
+            if bool(random.getrandbits(1)):
+                dupl = perturbate(sample.x, num_samples=1)
+            else:
+                dupl = perturbate(sample.x, num_samples=1, with_z=True)
+            emb_dupl, _ = model.run(dupl, sample.edge_features, sample.edge_index, device=device)
+
+            loss = loss_obj(z.squeeze(-1), emb.squeeze(-1), emb_dupl.squeeze(-1), sample.y, sample.PU_info, weights)
         else:
             loss = loss_obj(z.squeeze(-1), torch.ceil(sample.y), weights)
 
@@ -67,7 +75,7 @@ def test(model, loader, epoch, weighted="raw_energy", scores=False, loss_obj=Foc
             pu_edges[3] += torch.sum(weights[sample.PU_info[:, 2]] * (~y_true[sample.PU_info[:, 2]] & ~y_pred[sample.PU_info[:, 2]])).item()
             
             if scores:
-                val_loss += loss_obj(nn_pred.squeeze(-1), nn_emb.squeeze(-1), sample.y, weights).item()
+                val_loss += loss_obj(nn_pred.squeeze(-1), nn_emb.squeeze(-1), sample.y, sample.PU_info, weights).item()
             else:
                 val_loss += loss_obj(nn_pred.squeeze(-1), torch.ceil(sample.y), weights).item()
 
@@ -96,7 +104,7 @@ def validate(model, loader, epoch, weighted="raw_energy", scores=False, loss_obj
             PU_info[2] += sample.PU_info[:, 2].tolist()
             
             if scores:
-                val_loss += loss_obj(nn_pred.squeeze(-1), nn_emb.squeeze(-1), sample.y, weight).item()
+                val_loss += loss_obj(nn_pred.squeeze(-1), nn_emb.squeeze(-1), sample.y, sample.PU_info, weight).item()
             else:
                 val_loss += loss_obj(nn_pred.squeeze(-1), torch.ceil(sample.y), weight).item()
 
