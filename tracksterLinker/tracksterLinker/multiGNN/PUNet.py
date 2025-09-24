@@ -5,11 +5,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from tracksterLinker.GNN.EdgeConvBlock import EdgeConvBlock
+from tracksterLinker.transformer.Transformer import EncoderLayer
 from tracksterLinker.datasets.GNNDataset import GNNDataset
 
 
 class PUNet(nn.Module):
-    def __init__(self, input_dim=19, hidden_dim=16, output_dim=1, niters=2, dropout=0.2,
+    def __init__(self, input_dim=19, hidden_dim=16, output_dim=1, niters=2, dropout=0.2, num_heads=12, num_layers=3,
                  edge_feature_dim=12, edge_hidden_dim=16, weighted_aggr=True, default_thresh = 0.6,
                  node_scaler=None, edge_scaler=None):
         super(PUNet, self).__init__()
@@ -36,6 +37,7 @@ class PUNet(nn.Module):
             nn.Linear(hidden_dim, hidden_dim),
             nn.LeakyReLU()
         )
+        self.encoder_layers = nn.ModuleList([EncoderLayer(hidden_dim, num_heads, hidden_dim*2, dropout) for _ in range(num_layers)])
 
         # Edge Feature transformation to latent space
         self.edge_inputnetwork = nn.Sequential(
@@ -79,6 +81,16 @@ class PUNet(nn.Module):
             nn.Sigmoid()
         )
 
+        self.edgenetwork = nn.Sequential(
+            nn.Linear(2* hidden_dim + edge_feature_dim +
+                      edge_hidden_dim, hidden_dim),
+            nn.LeakyReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, 1),
+            nn.Sigmoid()
+            # nn.LeakyReLU()
+        )
+
     def run(self, X, edge_features, edge_index, device:torch.device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
         edge_features = (edge_features + 10e-5) / self.edge_scaler
         X = X / self.node_scaler
@@ -90,6 +102,13 @@ class PUNet(nn.Module):
 
         # Feature transformation to latent space
         node_emb = self.inputnetwork(X)
+        node_emb = node_emb.unsqueeze(0)
+
+        for enc_layer in self.encoder_layers:
+            node_emb = enc_layer(node_emb)
+
+        node_emb = node_emb.squeeze(0)
+
         empty = torch.zeros(X.shape[0], dtype=torch.int, device=device)
         src, dst = edge_index.unbind(1)
         ind_p1 = torch.cat((empty, src, dst))
@@ -99,9 +118,14 @@ class PUNet(nn.Module):
         for graphconv in self.graphconvs:
             node_emb = graphconv(node_emb, ind_p1, ind_p2, alpha=alpha, device=device)
         
-        pred = self.pu_network(node_emb)
-        return pred
+        src_emb = node_emb.index_select(0, src)
+        dst_emb = node_emb.index_select(0, dst)
+
+        edge_emb = torch.cat([src_emb, dst_emb, edge_features_NN, edge_features], dim=-1)
+        embedding = self.edgenetwork(edge_emb)
+        # return embedding, self.outputnetwork(embedding)
+        return None, embedding
 
     def forward(self, X, edge_features, edge_index, device:torch.device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
-        pred = self.run(X, edge_features, edge_index, device)
-        return (pred >= self.threshold).to(dtype=pred.dtype, device=pred.device)
+        emb, pred = self.run(X, edge_features, edge_index, device)
+        return pred

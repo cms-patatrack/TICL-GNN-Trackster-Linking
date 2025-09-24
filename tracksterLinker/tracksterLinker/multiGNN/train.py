@@ -3,7 +3,7 @@ import numpy as np
 
 import torch
 
-from tracksterLinker.GNN.TrackLinkingNet import FocalLoss
+from tracksterLinker.GNN.LossFunctions import FocalLoss
 from tracksterLinker.datasets.NeoGNNDataset import NeoGNNDataset
 from tracksterLinker.utils.dataUtils import calc_weights
 
