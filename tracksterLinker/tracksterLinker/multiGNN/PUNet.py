@@ -86,9 +86,16 @@ class PUNet(nn.Module):
                       edge_hidden_dim, hidden_dim),
             nn.LeakyReLU(),
             nn.Dropout(dropout),
-            nn.Linear(hidden_dim, 1),
+            nn.Linear(hidden_dim, hidden_dim),
+            # nn.Sigmoid()
+            nn.LeakyReLU()
+        )
+
+        self.outputnetwork = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.LeakyReLU(),
+            nn.Linear(hidden_dim, output_dim),
             nn.Sigmoid()
-            # nn.LeakyReLU()
         )
 
     def run(self, X, edge_features, edge_index):
@@ -123,8 +130,7 @@ class PUNet(nn.Module):
 
         edge_emb = torch.cat([src_emb, dst_emb, edge_features_NN, edge_features], dim=-1)
         embedding = self.edgenetwork(edge_emb)
-        # return embedding, self.outputnetwork(embedding)
-        return None, embedding
+        return embedding, self.outputnetwork(embedding)
 
     def forward(self, X, edge_features, edge_index):
         emb, pred = self.run(X, edge_features, edge_index)

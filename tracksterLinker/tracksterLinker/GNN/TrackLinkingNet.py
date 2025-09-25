@@ -147,5 +147,5 @@ class GNN_TrackLinkingNet(nn.Module):
         # return None, embedding
 
     def forward(self, X, edge_features, edge_index):
-        embedding, pred = self.run(X, edge_features, edge_index, device)
+        embedding, pred = self.run(X, edge_features, edge_index)
         return pred

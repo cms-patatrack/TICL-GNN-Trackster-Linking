@@ -23,7 +23,7 @@ def train(model, opt, loader, epoch, weighted="raw_energy", scores=False, emb_ou
 
         # compute the loss
         if scores:
-            label = torch.full((sample.edge_index.shape[0], ), random.getrandbits(1), device=device)
+            label = torch.full((sample.edge_index.shape[0], ), random.getrandbits(1), device=sample.x.device)
             if label[0] == 0:
                 dupl = perturbate(sample.x, num_samples=1, with_z=True)
                 emb_dupl, _ = model.run(dupl.squeeze(0), sample.edge_features, sample.edge_index)

@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 
 from tracksterLinker.datasets.NeoGNNDataset import NeoGNNDataset
 from tracksterLinker.GNN.TrackLinkingNet import GNN_TrackLinkingNet, EarlyStopping, weight_init
+from tracksterLinker.multiGNN.PUNet import PUNet
 from tracksterLinker.GNN.LossFunctions import *
 from tracksterLinker.GNN.train import *
 from tracksterLinker.utils.dataStatistics import *
@@ -16,11 +17,11 @@ from tracksterLinker.utils.graphUtils import print_graph_statistics, negative_ed
 from tracksterLinker.utils.plotResults import *
 
 
-load_weights = True
-model_name = "model_2025-09-24_epoch_34_dict"
+load_weights = False
+model_name = "model_2025-09-24_final_loss_-0.7608_epoch_54_dict"
 
 base_folder = "/home/czeh"
-model_folder = osp.join(base_folder, "GNN/contr_finetune")
+model_folder = osp.join(base_folder, "GNN/model_contr_attent")
 hist_folder = osp.join(base_folder, "new_graph_histo")
 data_folder_training = osp.join(base_folder, "GNN/dataset_hardronics")
 data_folder_test = osp.join(base_folder, "GNN/dataset_hardronics_test")
@@ -43,9 +44,13 @@ print(f"Using device: {device}")
 start_epoch = 0
 epochs = 100
 
-model = GNN_TrackLinkingNet(input_dim=len(dataset_training.model_feature_keys),
+# model = GNN_TrackLinkingNet(input_dim=len(dataset_training.model_feature_keys),
+#                             edge_feature_dim=dataset_training[0].edge_features.shape[1], niters=2,
+#                             edge_hidden_dim=16, hidden_dim=16, weighted_aggr=True, dropout=0.3,
+#                             node_scaler=dataset_training.node_scaler, edge_scaler=dataset_training.edge_scaler)
+model = PUNet(input_dim=len(dataset_training.model_feature_keys),
                             edge_feature_dim=dataset_training[0].edge_features.shape[1], niters=4,
-                            edge_hidden_dim=32, hidden_dim=64, weighted_aggr=True, dropout=0.3,
+                            edge_hidden_dim=32, hidden_dim=64, num_heads=8, weighted_aggr=True, dropout=0.3,
                             node_scaler=dataset_training.node_scaler, edge_scaler=dataset_training.edge_scaler)
 model = model.to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
