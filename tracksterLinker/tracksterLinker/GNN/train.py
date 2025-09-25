@@ -31,7 +31,6 @@ def train(model, opt, loader, epoch, weighted="raw_energy", scores=False, emb_ou
                 indices = torch.randperm(sample.edge_index.shape[0])
                 emb_dupl = emb[indices]
 
-            weights[~sample.isPU & (sample.x[:, GNNDataset.node_feature_dict["barycenter_eta"]] > 2.6)] *= 10
             loss = loss_obj(z.squeeze(-1), emb.squeeze(-1), emb_dupl.squeeze(-1), sample.y, label, weights)
         else:
             loss = loss_obj(z.squeeze(-1), torch.ceil(sample.y), weights)
@@ -58,7 +57,6 @@ def test(model, loader, epoch, weighted="raw_energy", scores=False, loss_obj=Foc
         for sample in tqdm(loader, desc=f"Validation Epoch {epoch}"):
             nn_emb, nn_pred = model.run(sample.x, sample.edge_features, sample.edge_index)
             weights = calc_weights(sample.edge_index, sample.x, GNNDataset.node_feature_dict, name=weighted)
-            weights[~sample.isPU & (sample.x[:, GNNDataset.node_feature_dict["barycenter_eta"]] > 2.6)] *= 10
 
             y_pred = (nn_pred > model.threshold).squeeze()
             y_true = (sample.y > 0).squeeze()
