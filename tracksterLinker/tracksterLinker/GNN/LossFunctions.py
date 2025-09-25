@@ -32,8 +32,7 @@ class ContrastiveLoss(nn.Module):
         super(ContrastiveLoss, self).__init__()
         self.margin = margin
 
-    def forward(self, output1, output2, isPU):
-        label = torch.ones(output1.shape[0]).int()
+    def forward(self, output1, output2, label):
 
         euclidean_distance = nn.functional.pairwise_distance(output1, output2)
         loss_contrastive = torch.mean(((1 - label) * torch.pow(euclidean_distance, 2) +
@@ -50,5 +49,5 @@ class CombinedLoss(nn.Module):
         self.weightFocal = weightFocal
         self.weightContrastive = weightContrastive
 
-    def forward(self, predictions, embeddings, emb_dupl, targets, isPU, weights):
-        return self.weightFocal * self.focal(predictions, targets, weights) + self.weightContrastive * self.contrastive(embeddings, emb_dupl, isPU)
+    def forward(self, predictions, embeddings, emb_dupl, targets, label, weights):
+        return self.weightFocal * self.focal(predictions, targets, weights) + self.weightContrastive * self.contrastive(embeddings, emb_dupl, label)
