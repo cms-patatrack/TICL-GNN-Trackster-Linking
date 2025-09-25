@@ -78,7 +78,7 @@ val_loss_hist = []
 
 for epoch in range(start_epoch, start_epoch+epochs):
     print(f'Epoch: {epoch+1}')
-    loss = train(model, optimizer, train_dl, epoch+1, device=device, loss_obj=loss_obj)
+    loss = train(model, optimizer, train_dl, epoch+1, loss_obj=loss_obj)
     train_loss_hist.append(loss)
 
     val_loss, cross_edges, signal_edges, pu_edges = test(model, test_dl, epoch+1, loss_obj=loss_obj, device=device, weighted="raw_energy")
@@ -98,7 +98,7 @@ for epoch in range(start_epoch, start_epoch+epochs):
     if ((epoch+1) % 10 == 0):
         print("Store Diagrams")
 
-        val_loss, pred, y, weight, PU_info = validate(model, test_dl, epoch+1, loss_obj=loss_obj, device=device, weighted="raw_energy")
+        val_loss, pred, y, weight, PU_info = validate(model, test_dl, epoch+1, loss_obj=loss_obj, weighted="raw_energy")
         threshold = get_best_threshold(pred, y, weight)
         model.threshold = threshold
 

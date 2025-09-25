@@ -3,6 +3,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from typing import Optional
+
 
 class MultiHeadAttention(nn.Module):
     def __init__(self, d_model, num_heads):
@@ -16,7 +18,7 @@ class MultiHeadAttention(nn.Module):
         self.W_v = nn.Linear(d_model, d_model)
         self.W_o = nn.Linear(d_model, d_model)
 
-    def scaled_dot_product_attention(self, Q, K, V, mask=None):
+    def scaled_dot_product_attention(self, Q, K, V, mask: Optional[torch.Tensor]=None):
         attn_scores = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(self.d_k)
         if mask is not None:
             attn_scores = attn_scores.masked_fill(mask == 0, -1e9)
@@ -32,7 +34,7 @@ class MultiHeadAttention(nn.Module):
         batch_size, _, seq_length, d_k = x.size()
         return x.transpose(1, 2).contiguous().view(batch_size, seq_length, self.d_model)
 
-    def forward(self, Q, K, V, mask=None):
+    def forward(self, Q, K, V, mask: Optional[torch.Tensor]=None):
         Q = self.split_heads(self.W_q(Q))
         K = self.split_heads(self.W_k(K))
         V = self.split_heads(self.W_v(V))
@@ -103,7 +105,7 @@ class EncoderLayer(nn.Module):
         self.norm2 = nn.LayerNorm(d_model)
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x, mask=None):
+    def forward(self, x, mask: Optional[torch.Tensor]=None):
         attn_output = self.self_attn(x, x, x, mask=mask)
         x = self.norm1(x + self.dropout(attn_output))
         ff_output = self.feed_forward(x)

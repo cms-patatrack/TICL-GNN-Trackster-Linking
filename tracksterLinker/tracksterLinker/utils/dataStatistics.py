@@ -1,5 +1,6 @@
 import os
 import torch
+import copy
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -20,16 +21,27 @@ def save_model(model, epoch, optimizer, loss, val_loss, output_folder, filename,
                 }, f"{path}_epoch_{epoch}_dict.pt")
     
     if (dummy_input is not None):
-        #model_copy = copy.deepcopy(model)
-        model_copy = model
-        #model_copy.to("cpu")
-        model_copy.eval()
+        # TODO: Move model to cpu before tracing
+        dump_model = copy.deepcopy(model)
+        dump_model.to("cpu")
+
+        # Double-check any buffers/constants
+        for name, buf in dump_model.named_buffers(recurse=True):
+            if buf.device.type != "cpu":
+                dump_model.register_buffer(name, buf.cpu(), persistent=True)
+
+        for name, param in dump_model.named_parameters(recurse=True):
+            if param.device.type != "cpu":
+                param.data = param.cpu()
+        dump_model.eval()
         
         with torch.no_grad():
-            test_input = (dummy_input.x, dummy_input.edge_features, dummy_input.edge_index)
-            traced_model = torch.jit.script(model_copy)
+            dummy_input_copy = copy.deepcopy(dummy_input)
+            dummy_input_copy.to("cpu")
+            test_input = (dummy_input_copy.x, dummy_input_copy.edge_features, dummy_input_copy.edge_index)
+            traced_model = torch.jit.script(dump_model)
             
-            if (torch.allclose(model(*test_input), traced_model(*test_input), atol=1e-4)):
+            if (torch.allclose(dump_model(*test_input), traced_model(*test_input), atol=1e-4)):
                 traced_model.save(f"{path}_traced.pt")
             else:
                 traced_model.save(f"{path}_diff_traced.pt")

@@ -9,7 +9,7 @@ from tracksterLinker.datasets.GNNDataset import GNNDataset
 from tracksterLinker.utils.dataUtils import calc_weights
 from tracksterLinker.utils.perturbations.inErrorBars import perturbate
 
-def train(model, opt, loader, epoch, weighted="raw_energy", scores=False, emb_out=False, loss_obj=FocalLoss(), device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
+def train(model, opt, loader, epoch, weighted="raw_energy", scores=False, emb_out=False, loss_obj=FocalLoss()):
 
     epoch_loss = 0
 
@@ -18,7 +18,7 @@ def train(model, opt, loader, epoch, weighted="raw_energy", scores=False, emb_ou
 
         # reset optimizer and enable training mode
         opt.zero_grad()
-        emb, z = model.run(sample.x, sample.edge_features, sample.edge_index, device=device)
+        emb, z = model.run(sample.x, sample.edge_features, sample.edge_index)
         weights = calc_weights(sample.edge_index, sample.x, GNNDataset.node_feature_dict, name=weighted)
 
         # compute the loss
@@ -27,7 +27,7 @@ def train(model, opt, loader, epoch, weighted="raw_energy", scores=False, emb_ou
                 dupl = perturbate(sample.x, num_samples=1)
             else:
                 dupl = perturbate(sample.x, num_samples=1, with_z=True)
-            emb_dupl, _ = model.run(dupl, sample.edge_features, sample.edge_index, device=device)
+            emb_dupl, _ = model.run(dupl, sample.edge_features, sample.edge_index)
 
             loss = loss_obj(z.squeeze(-1), emb.squeeze(-1), emb_dupl.squeeze(-1), sample.y, sample.PU_info, weights)
         else:
@@ -53,7 +53,7 @@ def test(model, loader, epoch, weighted="raw_energy", scores=False, loss_obj=Foc
         pu_edges = torch.zeros(4, device=device)
             
         for sample in tqdm(loader, desc=f"Validation Epoch {epoch}"):
-            nn_emb, nn_pred = model.run(sample.x, sample.edge_features, sample.edge_index, device=device)
+            nn_emb, nn_pred = model.run(sample.x, sample.edge_features, sample.edge_index)
             weights = calc_weights(sample.edge_index, sample.x, GNNDataset.node_feature_dict, name=weighted)
 
             y_pred = (nn_pred > model.threshold).squeeze()
@@ -83,7 +83,7 @@ def test(model, loader, epoch, weighted="raw_energy", scores=False, loss_obj=Foc
         return val_loss, cross_edges, signal_edges, pu_edges 
 
 
-def validate(model, loader, epoch, weighted="raw_energy", scores=False, loss_obj=FocalLoss(), device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
+def validate(model, loader, epoch, weighted="raw_energy", scores=False, loss_obj=FocalLoss()):
 
     with torch.set_grad_enabled(False):
         model.eval()
@@ -93,7 +93,7 @@ def validate(model, loader, epoch, weighted="raw_energy", scores=False, loss_obj
         PU_info = [[], [], []]
             
         for sample in tqdm(loader, desc=f"Validation Epoch {epoch}"):
-            nn_emb, nn_pred = model.run(sample.x, sample.edge_features, sample.edge_index, device=device)
+            nn_emb, nn_pred = model.run(sample.x, sample.edge_features, sample.edge_index)
             pred += nn_pred.squeeze(-1).tolist()
             y += sample.y.tolist()
             weight = calc_weights(sample.edge_index, sample.x, GNNDataset.node_feature_dict, name=weighted)

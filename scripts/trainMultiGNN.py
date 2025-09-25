@@ -17,11 +17,11 @@ from tracksterLinker.utils.graphUtils import *
 from tracksterLinker.utils.plotResults import *
 
 
-load_weights = False
-model_name = "model_2025-08-08_epoch_199_dict"
+load_weights = True
+model_name = "model_2025-09-24_epoch_19_dict"
 
 base_folder = "/home/czeh"
-model_folder = osp.join(base_folder, "MultiGNN/model")
+model_folder = osp.join(base_folder, "MultiGNN/modelATT2")
 hist_folder = osp.join(base_folder, "histo_fullPU")
 data_folder_training = osp.join(base_folder, "GNN/dataset_hardronics")
 data_folder_test = osp.join(base_folder, "GNN/dataset_hardronics_test")
@@ -41,15 +41,15 @@ device = torch.device('cuda' if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
 # Prepare Model
-epochs = 200
+epochs = 20
 start_epoch = 0
 
 model = PUNet(input_dim=len(dataset_training.model_feature_keys),
-                            edge_feature_dim=dataset_training[0].edge_features.shape[1], n_iter=4,
+                            edge_feature_dim=dataset_training[0].edge_features.shape[1], niters=4,
                             edge_hidden_dim=32, hidden_dim=64, num_heads=8, weighted_aggr=True, dropout=0.3,
                             node_scaler=dataset_training.node_scaler, edge_scaler=dataset_training.edge_scaler)
 model = model.to(device)
-optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 
 #increase weight on positive edges just a bit more
 alpha = 0.5 + negative_edge_imbalance(dataset_test)/2
@@ -66,9 +66,9 @@ if load_weights:
     weights = torch.load(osp.join(model_folder, f"{model_name}.pt"), weights_only=True)
     model.load_state_dict(weights["model_state_dict"])
     optimizer.load_state_dict(weights["optimizer_state_dict"])
-    start_epoch = weights["epoch"]
+    start_epoch = weights["epoch"] = 1
 
-    save_model(model, 0, optimizer, [], [], output_folder=model_folder, filename=model_name, dummy_input=dataset_training[0])
+    save_model(model, 0, optimizer, [], [], output_folder=model_folder, filename=model_name, dummy_input=dataset_test[0])
 
 # Scheduler after weight loading, to take new epoch size into account
 scheduler = CosineAnnealingLR(optimizer, start_epoch+epochs, eta_min=1e-6)
@@ -78,12 +78,12 @@ val_loss_hist = []
 
 for epoch in range(start_epoch, start_epoch+epochs):
     print(f'Epoch: {epoch+1}')
-    loss = train(model, optimizer, train_dl, epoch+1, device=device, loss_obj=loss_obj)
+    loss = train(model, optimizer, train_dl, epoch+1, loss_obj=loss_obj)
     train_loss_hist.append(loss)
 
     val_loss, cross_edges, signal_edges, pu_edges = test(model, test_dl, epoch+1, loss_obj=loss_obj, device=device, weighted="raw_energy")
     val_loss_hist.append(val_loss)
-    print(f'Training loss: {loss}, Validation loss: {val_loss}, Learning Rate: {scheduler.get_last_lr()}')
+    print(f'Training loss: {loss}, Validation loss: {val_loss}, Learning Rate: {scheduler.get_lr()}')
 
     plot_loss(train_loss_hist, val_loss_hist, save=True, output_folder=model_folder, filename=f"model_date_{date}_loss_epochs")
 
@@ -95,10 +95,10 @@ for epoch in range(start_epoch, start_epoch+epochs):
     print("Only PU trackster:") 
     print_acc_scores_from_precalc(*pu_edges)
     
-    if ((epoch+1) % 10 == 0):
+    if (epoch % 10 == 0):
         print("Store Diagrams")
 
-        val_loss, pred, y, weight, PU_info = validate(model, test_dl, epoch+1, loss_obj=loss_obj, device=device, weighted="raw_energy")
+        val_loss, pred, y, weight, PU_info = validate(model, test_dl, epoch+1, loss_obj=loss_obj, weighted="raw_energy")
         threshold = get_best_threshold(pred, y, weight)
         model.threshold = threshold
 
@@ -106,16 +106,16 @@ for epoch in range(start_epoch, start_epoch+epochs):
         plot_binned_validation_results(pred, y, weight, thres=threshold, output_folder=model_folder, file_suffix=f"epoch_{epoch+1}_date_{date}")
         plot_validation_results(pred, y, save=True, output_folder=model_folder, file_suffix=f"epoch_{epoch+1}_date_{date}", weight=weight)
 
-    if ((epoch+1) % 5 == 0):
+    if (epoch % 5 == 0):
         print("Store Model")
-        save_model(model, epoch, optimizer, train_loss_hist, val_loss_hist, output_folder=model_folder, filename=f"model_{date}", dummy_input=dataset_training[0])
+        save_model(model, epoch, optimizer, train_loss_hist, val_loss_hist, output_folder=model_folder, filename=f"model_{date}", dummy_input=dataset_test[0])
 
     early_stopping(model, val_loss)
     if early_stopping.early_stop:
         print(f"Early stopping after {epoch+1} epochs")
         early_stopping.load_best_model(model)
 
-        save_model(model, epoch, optimizer, train_loss_hist, val_loss_hist, output_folder=model_folder, filename=f"model_{date}_final_loss_{-early_stopping.best_score:.4f}", dummy_input=dataset_training[0])
+        save_model(model, epoch, optimizer, train_loss_hist, val_loss_hist, output_folder=model_folder, filename=f"model_{date}_final_loss_{-early_stopping.best_score:.4f}", dummy_input=dataset_test[0])
         break
 
     scheduler.step()

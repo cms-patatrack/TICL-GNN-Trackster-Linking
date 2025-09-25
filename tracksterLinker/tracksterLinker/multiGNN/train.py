@@ -7,7 +7,7 @@ from tracksterLinker.GNN.LossFunctions import FocalLoss
 from tracksterLinker.datasets.NeoGNNDataset import NeoGNNDataset
 from tracksterLinker.utils.dataUtils import calc_weights
 
-def train(model, opt, loader, epoch, weighted="raw_energy", emb_out=False, loss_obj=FocalLoss(), device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
+def train(model, opt, loader, epoch, weighted="raw_energy", emb_out=False, loss_obj=FocalLoss()):
 
     epoch_loss = 0
 
@@ -15,7 +15,7 @@ def train(model, opt, loader, epoch, weighted="raw_energy", emb_out=False, loss_
     for sample in tqdm(loader, desc=f"Training Epoch {epoch}"):
         # reset optimizer and enable training mode
         opt.zero_grad()
-        z = model.run(sample.x, sample.edge_features, sample.edge_index, device=device)
+        z = model.run(sample.x, sample.edge_features, sample.edge_index)
         weights = sample.x[:, NeoGNNDataset.node_feature_dict[weighted]]
 
         # compute the loss
@@ -39,7 +39,7 @@ def test(model, loader, epoch, weighted="raw_energy", loss_obj=FocalLoss(), devi
         stats = torch.zeros(4, device=device)
             
         for sample in tqdm(loader, desc=f"Validation Epoch {epoch}"):
-            nn_pred = model.run(sample.x, sample.edge_features, sample.edge_index, device=device)
+            nn_pred = model.run(sample.x, sample.edge_features, sample.edge_index)
             weights = sample.x[:, NeoGNNDataset.node_feature_dict[weighted]]
 
             y_pred = (nn_pred > model.threshold).squeeze()
@@ -56,7 +56,7 @@ def test(model, loader, epoch, weighted="raw_energy", loss_obj=FocalLoss(), devi
         return val_loss, stats
 
 
-def validate(model, loader, epoch, weighted="raw_energy", loss_obj=FocalLoss(), device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
+def validate(model, loader, epoch, weighted="raw_energy", loss_obj=FocalLoss())
 
     with torch.set_grad_enabled(False):
         model.eval()
@@ -65,7 +65,7 @@ def validate(model, loader, epoch, weighted="raw_energy", loss_obj=FocalLoss(), 
         pred, y, weights = [], [], []
             
         for sample in tqdm(loader, desc=f"Validation Epoch {epoch}"):
-            nn_pred = model.run(sample.x, sample.edge_features, sample.edge_index, device=device)
+            nn_pred = model.run(sample.x, sample.edge_features, sample.edge_index)
             pred += nn_pred.squeeze(-1).tolist()
             y += sample.isPU.tolist()
             weight = sample.x[:, NeoGNNDataset.node_feature_dict[weighted]]

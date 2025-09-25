@@ -44,8 +44,8 @@ start_epoch = 0
 epochs = 50
 
 model = GNN_TrackLinkingNet(input_dim=len(dataset_training.model_feature_keys),
-                            edge_feature_dim=dataset_training[0].edge_features.shape[1], niters=2,
-                            edge_hidden_dim=16, hidden_dim=16, weighted_aggr=True, dropout=0.3,
+                            edge_feature_dim=dataset_training[0].edge_features.shape[1], niters=4,
+                            edge_hidden_dim=32, hidden_dim=64, weighted_aggr=True, dropout=0.3,
                             node_scaler=dataset_training.node_scaler, edge_scaler=dataset_training.edge_scaler)
 model = model.to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
@@ -78,7 +78,7 @@ val_loss_hist = []
 
 for epoch in range(start_epoch, start_epoch+epochs):
     print(f'Epoch: {epoch+1}')
-    loss = train(model, optimizer, train_dl, epoch+1, device=device, loss_obj=loss_obj, scores=True)
+    loss = train(model, optimizer, train_dl, epoch+1, loss_obj=loss_obj, scores=True)
     train_loss_hist.append(loss)
 
     val_loss, cross_edges, signal_edges, pu_edges = test(model, test_dl, epoch+1, loss_obj=loss_obj, device=device, weighted="raw_energy")
@@ -102,7 +102,7 @@ for epoch in range(start_epoch, start_epoch+epochs):
     if ((epoch+1) % 10 == 0):
         print("Store Diagrams")
 
-        val_loss, pred, y, weight, PU_info = validate(model, test_dl, epoch+1, loss_obj=loss_obj, device=device, weighted="raw_energy")
+        val_loss, pred, y, weight, PU_info = validate(model, test_dl, epoch+1, loss_obj=loss_obj, weighted="raw_energy")
         threshold = get_best_threshold(pred, y, weight)
         model.threshold = threshold
 
