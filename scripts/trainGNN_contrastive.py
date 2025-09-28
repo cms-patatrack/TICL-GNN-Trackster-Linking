@@ -3,7 +3,7 @@ import os
 from datetime import datetime
 
 import torch
-from torch.optim.lr_scheduler import ExponentialLR
+from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch_geometric.loader.dataloader import DataLoader
 import matplotlib.pyplot as plt
 
@@ -17,8 +17,8 @@ from tracksterLinker.utils.graphUtils import print_graph_statistics, negative_ed
 from tracksterLinker.utils.plotResults import *
 
 
-load_weights = False
-model_name = "model_2025-09-24_final_loss_-0.7608_epoch_54_dict"
+load_weights = True
+model_name = "model_contr_small"
 
 base_folder = "/home/czeh"
 model_folder = osp.join(base_folder, "GNN/model_contr_attent")
@@ -42,7 +42,7 @@ print(f"Using device: {device}")
 
 # Prepare Model
 start_epoch = 0
-epochs = 100
+epochs = 40
 
 # model = GNN_TrackLinkingNet(input_dim=len(dataset_training.model_feature_keys),
 #                             edge_feature_dim=dataset_training[0].edge_features.shape[1], niters=2,
@@ -50,15 +50,15 @@ epochs = 100
 #                             node_scaler=dataset_training.node_scaler, edge_scaler=dataset_training.edge_scaler)
 model = PUNet(input_dim=len(dataset_training.model_feature_keys),
                             edge_feature_dim=dataset_training[0].edge_features.shape[1], niters=4,
-                            edge_hidden_dim=32, hidden_dim=64, num_heads=8, weighted_aggr=True, dropout=0.3,
+                            edge_hidden_dim=16, hidden_dim=16, num_heads=8, weighted_aggr=True, dropout=0.3,
                             node_scaler=dataset_training.node_scaler, edge_scaler=dataset_training.edge_scaler)
 model = model.to(device)
-optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
+optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
 #increase weight on positive edges just a bit more
 alpha = 0.5 + negative_edge_imbalance(dataset_test)/2
 print(f"Focal loss with alpha={alpha}")
-loss_obj = CombinedLoss(alpha=alpha, gamma=2, margin=2.0, weightFocal=0.4, weightContrastive=0.6)
+loss_obj = CombinedLoss(alpha=alpha, gamma=2, margin=2.0, weightFocal=0.6, weightContrastive=0.4)
 
 
 early_stopping = EarlyStopping(patience=20, delta=0)
@@ -69,18 +69,19 @@ date = f"{datetime.now():%Y-%m-%d}"
 
 if load_weights:
     weights = torch.load(osp.join(model_folder, f"{model_name}.pt"), weights_only=True)
-    model.load_state_dict(weights["model_state_dict"])
-    optimizer.load_state_dict(weights["optimizer_state_dict"])
-    start_epoch = weights["epoch"]
+    model.load_state_dict(weights["model_state_dict"], strict=False)
+    # optimizer.load_state_dict(weights["optimizer_state_dict"])
+    # start_epoch = weights["epoch"]
 
     save_model(model, 0, optimizer, [], [], output_folder=model_folder, filename=model_name, dummy_input=dataset_training[0])
 
 # Scheduler after weight loading, to take new epoch size into account
-scheduler = ExponentialLR(optimizer, gamma=0.95)
+scheduler = CosineAnnealingLR(optimizer, T_max=start_epoch+epochs, eta_min=1e-6)
 
 train_loss_hist = []
 val_loss_hist = []
 
+print(scheduler.get_last_lr())
 for epoch in range(start_epoch, start_epoch+epochs):
     print(f'Epoch: {epoch+1}')
     loss = train(model, optimizer, train_dl, epoch+1, loss_obj=loss_obj, scores=True)
@@ -88,7 +89,7 @@ for epoch in range(start_epoch, start_epoch+epochs):
 
     val_loss, cross_edges, signal_edges, pu_edges = test(model, test_dl, epoch+1, loss_obj=loss_obj.focal, device=device, weighted="raw_energy")
     val_loss_hist.append(val_loss)
-    print(f'Training loss: {loss}, Validation loss: {val_loss}, Learning Rate: {scheduler.get_lr()}')
+    print(f'Training loss: {loss}, Validation loss: {val_loss}, Learning Rate: {scheduler.get_last_lr()}')
 
     plot_loss(train_loss_hist, val_loss_hist, save=True, output_folder=model_folder, filename=f"model_date_{date}_loss_epochs")
 
@@ -100,11 +101,11 @@ for epoch in range(start_epoch, start_epoch+epochs):
     print("Only PU trackster:") 
     print_acc_scores_from_precalc(*pu_edges)
     
-    if ((epoch+1) % 5 == 0):
+    if ((epoch + 5) % 5 == 0):
         print("Store Model")
         save_model(model, epoch, optimizer, train_loss_hist, val_loss_hist, output_folder=model_folder, filename=f"model_{date}", dummy_input=dataset_training[0])
 
-    if ((epoch+1) % 20 == 0):
+    if ((epoch + 20) % 20 == 0):
         print("Store Diagrams")
 
         val_loss, pred, y, weight, PU_info = validate(model, test_dl, epoch+1, loss_obj=loss_obj.focal, weighted="raw_energy")
