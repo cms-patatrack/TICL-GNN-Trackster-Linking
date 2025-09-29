@@ -72,7 +72,7 @@ for file in files:
     allGNNtrain_array = allGNNtrain.arrays()
     print(allGNNtrain_array.fields)
 
-    
+    cnt = 0    
     for event in allGNNtrain_array:
         nTracksters = len(event["node_barycenter_x"])
         features = cp.stack([ak.to_cupy(event[f"node_{field}"]) for field in interest_features], axis=1)
@@ -81,13 +81,13 @@ for file in files:
         sim_i = 0
         pu_i = 0
         for simTr in range(len(event["simTrackster_isPU"])):
-            if(event["simTrackster_isPU"][simTr]):
+            trackster = ak.to_numpy(features[event["node_match_idx"] == simTr]) 
+
+            if (trackster.shape[0] == 0):
                 continue
 
-            trackster = ak.to_numpy(features[event["node_match_idx"] == simTr]) 
-            print(np.mean(trackster, axis=0))
-        break
-
+            energy = trackster[:, 9]
+            sum_energy = np.tile(energy, (trackster.shape[1], 1))
             sim_features = np.sum(trackster * sum_energy.T, axis=0) / np.sum(energy)
 
             if(event["simTrackster_isPU"][simTr]):
