@@ -11,7 +11,7 @@ from tracksterLinker.datasets.NeoGNNDataset import *
 
 
 def statistics_of_gaussians(centers, covariances=None, cluster=10):
-    kmeans = KMeans(n_clusters=5, random_state=0).fit(centers)
+    kmeans = KMeans(n_clusters=cluster, random_state=0).fit(centers)
     labels = kmeans.labels_
 
     cluster_center_means = []
@@ -65,6 +65,11 @@ pu_cluster_counts_simTrackster = []
 cluster_cov_simTrackster = []
 pu_cluster_cov_simTrackster = []
 
+trackster_count = []
+pu_trackster_count = []
+trackster_rel_poses = []
+pu_trackster_rel_poses = []
+
 for file in files:
     file = uproot.open(file)
 
@@ -75,14 +80,15 @@ for file in files:
     cnt = 0    
     for event in allGNNtrain_array:
         nTracksters = len(event["node_barycenter_x"])
-        features = cp.stack([ak.to_cupy(event[f"node_{field}"]) for field in interest_features], axis=1)
-        signal_poses = np.zeros((len(event["simTrackster_isPU"]), 3))
-        pu_poses = np.zeros((np.sum(event["simTrackster_isPU"]), 3))
+
+        print(f"Event with {nTracksters}")
+        features = np.stack([ak.to_numpy(event[f"node_{field}"]) for field in interest_features], axis=1)
+        signal_poses = np.zeros((len(event["simTrackster_isPU"]), features.shape[1]))
+        pu_poses = np.zeros((np.sum(event["simTrackster_isPU"]), features.shape[1]))
         sim_i = 0
         pu_i = 0
         for simTr in range(len(event["simTrackster_isPU"])):
             trackster = ak.to_numpy(features[event["node_match_idx"] == simTr]) 
-
             if (trackster.shape[0] == 0):
                 continue
 
@@ -90,18 +96,25 @@ for file in files:
             sum_energy = np.tile(energy, (trackster.shape[1], 1))
             sim_features = np.sum(trackster * sum_energy.T, axis=0) / np.sum(energy)
 
-            if(event["simTrackster_isPU"][simTr]):
-                signal_poses[sim_i] = sim_features[:3] 
+            trackster -= sim_features
+
+            if(not event["simTrackster_isPU"][simTr]):
+                signal_poses[sim_i] = sim_features 
                 sim_i +=1
+                trackster_rel_poses.append(trackster)
+                trackster_count.append(trackster.shape[0])
+
             else:
-                pu_poses[pu_i] = sim_features[:3] 
+                pu_poses[pu_i] = sim_features 
                 pu_i += 1
+                pu_trackster_rel_poses.append(trackster)
+                pu_trackster_count.append(trackster.shape[0])
 
         signal_poses = signal_poses[:sim_i]
         pu_poses = pu_poses[:pu_i]
         
-        signal_kmeans = GaussianMixture(n_components=min(20, sim_i)).fit(signal_poses)
-        pu_kmeans = GaussianMixture(n_components=min(100, pu_i)).fit(pu_poses)
+        signal_kmeans = GaussianMixture(n_components=min(50, sim_i)).fit(signal_poses)
+        pu_kmeans = GaussianMixture(n_components=min(200, pu_i)).fit(pu_poses)
 
         cluster_poses_simTrackster.append(signal_kmeans.means_)
         cluster_cov_simTrackster.append(signal_kmeans.covariances_)
@@ -110,24 +123,33 @@ for file in files:
         cluster_counts_simTrackster.append(np.bincount(signal_kmeans.predict(signal_poses)))
         pu_cluster_counts_simTrackster.append(np.bincount(pu_kmeans.predict(pu_poses)))
         
-        if (cnt == 100):
+        count_signal_simTrackster.append(sim_i)
+        count_pu_simTrackster.append(pu_i)
+
+        if (cnt == 10):
             break
         cnt += 1
     break
 
 count_signal_simTrackster = np.array(count_signal_simTrackster)
-count_pu_simTrackster = np.array(count_signal_simTrackster)
+count_pu_simTrackster = np.array(count_pu_simTrackster)
 cluster_poses_simTrackster = np.array(cluster_poses_simTrackster)
 cluster_cov_simTrackster = np.array(cluster_cov_simTrackster)
-pu_cluster_poses_simTrackster = np.array(cluster_poses_simTrackster)
-pu_cluster_cov_simTrackster = np.array(cluster_cov_simTrackster)
-cluster_counts_simTrackster = np.array(cluster_counts_simTrackster)
-pu_cluster_counts_simTrackster = np.array(cluster_counts_simTrackster)
+pu_cluster_poses_simTrackster = np.array(pu_cluster_poses_simTrackster)
+pu_cluster_cov_simTrackster = np.array(pu_cluster_cov_simTrackster)
+cluster_counts_simTrackster = np.concatenate(cluster_counts_simTrackster)
+pu_cluster_counts_simTrackster = np.concatenate(pu_cluster_counts_simTrackster)
 
-cluster_poses_simTrackster = cluster_poses_simTrackster.reshape(cluster_poses_simTrackster.shape[0] * cluster_poses_simTrackster.shape[1], 3)
-cluster_cov_simTrackster = cluster_cov_simTrackster.reshape(cluster_cov_simTrackster.shape[0] * cluster_cov_simTrackster.shape[1], 3, 3)
-pu_cluster_poses_simTrackster = pu_cluster_poses_simTrackster.reshape(pu_cluster_poses_simTrackster.shape[0] * pu_cluster_poses_simTrackster.shape[1], 3)
-pu_cluster_cov_simTrackster = pu_cluster_cov_simTrackster.reshape(pu_cluster_cov_simTrackster.shape[0] * pu_cluster_cov_simTrackster.shape[1], 3, 3)
+trackster_rel_poses = np.concatenate(trackster_rel_poses)
+pu_trackster_rel_poses = np.concatenate(pu_trackster_rel_poses)
+trackster_count = np.array(trackster_count)
+pu_trackster_count = np.array(pu_trackster_count)
+
+cluster_poses_simTrackster = cluster_poses_simTrackster.reshape(cluster_poses_simTrackster.shape[0] * cluster_poses_simTrackster.shape[1], cluster_poses_simTrackster.shape[2])
+cluster_cov_simTrackster = cluster_cov_simTrackster.reshape(cluster_cov_simTrackster.shape[0] * cluster_cov_simTrackster.shape[1], cluster_cov_simTrackster.shape[2], cluster_cov_simTrackster.shape[3])
+pu_cluster_poses_simTrackster = pu_cluster_poses_simTrackster.reshape(pu_cluster_poses_simTrackster.shape[0] * pu_cluster_poses_simTrackster.shape[1], pu_cluster_poses_simTrackster.shape[2])
+pu_cluster_cov_simTrackster = pu_cluster_cov_simTrackster.reshape(pu_cluster_cov_simTrackster.shape[0] * pu_cluster_cov_simTrackster.shape[1], pu_cluster_cov_simTrackster.shape[2], pu_cluster_cov_simTrackster.shape[3])
+
 
 cluster_poses_simTrackster_mean, cluster_poses_simTrackster_std, cluster_cov_simTrackster_mean, cluster_cov_simTrackster_std = statistics_of_gaussians(cluster_poses_simTrackster, cluster_cov_simTrackster, cluster=20)
 pu_cluster_poses_simTrackster_mean, pu_cluster_poses_simTrackster_std, pu_cluster_cov_simTrackster_mean, pu_cluster_cov_simTrackster_std = statistics_of_gaussians(pu_cluster_poses_simTrackster, pu_cluster_cov_simTrackster, cluster=100)
@@ -140,7 +162,11 @@ res["signal_simTrackster"] = {"count_mean": np.mean(count_signal_simTrackster, a
                               "cov_mean": cluster_cov_simTrackster_mean, 
                               "cov_std": cluster_cov_simTrackster_std, 
                               "per_cluster_count_mean": np.mean(cluster_counts_simTrackster, axis=0), 
-                              "per_cluster_count_std": np.std(cluster_counts_simTrackster, axis=0)
+                              "per_cluster_count_std": np.std(cluster_counts_simTrackster, axis=0),
+                              "trackster_rel_poses_mean": np.mean(trackster_rel_poses, axis=0), 
+                              "trackster_rel_poses_std": np.std(trackster_rel_poses, axis=0),
+                              "trackster_count_mean": np.mean(trackster_count), 
+                              "trackster_count_std": np.std(trackster_count)
                               }
 
 res["pu_simTrackster"] = {"count_mean": np.mean(count_pu_simTrackster, axis=0), 
@@ -150,7 +176,11 @@ res["pu_simTrackster"] = {"count_mean": np.mean(count_pu_simTrackster, axis=0),
                               "cov_mean": pu_cluster_cov_simTrackster_mean, 
                               "cov_std": pu_cluster_cov_simTrackster_std, 
                               "per_cluster_count_mean": np.mean(pu_cluster_counts_simTrackster, axis=0), 
-                              "per_cluster_count_std": np.std(pu_cluster_counts_simTrackster, axis=0)
+                              "per_cluster_count_std": np.std(pu_cluster_counts_simTrackster, axis=0), 
+                              "trackster_rel_poses_mean": np.mean(pu_trackster_rel_poses, axis=0), 
+                              "trackster_rel_poses_std": np.std(pu_trackster_rel_poses, axis=0), 
+                              "trackster_count_mean": np.mean(pu_trackster_count), 
+                              "trackster_count_std": np.std(pu_trackster_count)
                               }
 np.savez(osp.join(output_folder, "simTrackster.npz"), **res)
 print(res)
