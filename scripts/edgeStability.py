@@ -33,16 +33,16 @@ def compute_and_save(graph_true, graph_pred, data, isPU, device, verbose, path, 
     return path
 
 if __name__ == "__main__":
-    model_name = "model_2025-09-24_traced"
-    model_thresh = 0.2
-    model_comp_name = "newGNN_focal"
-    model_comp_thresh = 0.2
+    model_name = "model_2025-10-08_final_loss_-0.0041_traced"
+    model_thresh = 0.5
+    model_comp_name = "focal_loss_traced"
+    model_comp_thresh = 0.5
 
     base_folder = "/home/czeh"
-    model_folder = osp.join(base_folder, "GNN/modelfocal_small")
-    output_folder = "/home/czeh/stability/model_comparison"
+    model_folder = osp.join(base_folder, "GNN/dummy_contr")
+    output_folder = "/home/czeh/stability/dummy_test_comparison"
     hist_folder = osp.join(base_folder, "GNN/full_PU")
-    data_folder = osp.join(base_folder, "GNN/dataset_hardronics_test")
+    data_folder = osp.join(base_folder, "dummy_dataset_test")
     os.makedirs(output_folder, exist_ok=True)
 
     # Prepare Dataset
@@ -65,16 +65,16 @@ if __name__ == "__main__":
     model_comp.eval()
     i = 0
 
-    n_perturb = 30
-    n_graphs = 50
+    n_perturb = 50
+    n_graphs = 100
     futures = []
     mapp = GraphHeatmap(resolution=250, axis_names=["x", "y"], axis_values=None, mean=False)
     mapp_model_comp = GraphHeatmap(resolution=250, axis_names=["x", "y"], axis_values=None, mean=False)
     mapp_model_direct_comp = GraphHeatmap(resolution=250, axis_names=["x", "y"], axis_values=None, mean=False)
     for sample in data_loader:
         print(f"Graph {i}")
-        nn_pred = model.forward(sample.x, sample.edge_features, sample.edge_index, device=device)
-        nn_pred_comp = model_comp.forward(sample.x, sample.edge_features, sample.edge_index, device=device)
+        nn_pred = model.forward(sample.x, sample.edge_features, sample.edge_index)
+        nn_pred_comp = model_comp.forward(sample.x, sample.edge_features, sample.edge_index)
          
         y_true = sample.y
         y_base = (nn_pred > model.threshold).squeeze().int()
@@ -87,12 +87,12 @@ if __name__ == "__main__":
 
         for j, data in enumerate(perturbated_data):
             print(f"{i}, {j}")
-            nn_pred = model.forward(data, sample.edge_features, sample.edge_index, device=device)
+            nn_pred = model.forward(data, sample.edge_features, sample.edge_index)
             y_pred = (nn_pred > model_thresh).squeeze().int()
             
             mapp.add_graph(data_x, data_y, (y_base & y_pred).cpu())
 
-            nn_pred = model_comp.forward(data, sample.edge_features, sample.edge_index, device=device)
+            nn_pred = model_comp.forward(data, sample.edge_features, sample.edge_index)
             y_pred_comp = (nn_pred > model_comp_thresh).squeeze().int()
             
             mapp_model_comp.add_graph(data_x, data_y, (y_base_comp & y_pred_comp).cpu())
@@ -103,7 +103,8 @@ if __name__ == "__main__":
         if i == n_graphs:
             break
 
-    mapp.plot(show_nodes=True, max_distance=5, file="contr_error_bars_edge_pos", folder=output_folder)
-    mapp.plot(show_nodes=False, max_distance=5, file="contr_error_bars", folder=output_folder)
-    mapp_model_comp.plot(show_nodes=False, max_distance=5, file="focal_error_bars", folder=output_folder)
-    mapp_model_direct_comp.plot(show_nodes=False, max_distance=5, file="contr_focal_direct_error_bars", folder=output_folder)
+    max_dist = 2
+    mapp.plot(show_nodes=True, max_distance=max_dist, file="contr_error_bars_edge_pos", folder=output_folder)
+    mapp.plot(show_nodes=False, max_distance=max_dist, file="contr_error_bars", folder=output_folder)
+    mapp_model_comp.plot(show_nodes=False, max_distance=max_dist, file="focal_error_bars", folder=output_folder)
+    mapp_model_direct_comp.plot(show_nodes=False, max_distance=max_dist, file="contr_focal_direct_error_bars", folder=output_folder)

@@ -67,7 +67,7 @@ if __name__ == "__main__":
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
         for sample in data_loader:
             print(f"Graph {i}")
-            nn_pred = model.forward(sample.x, sample.edge_features, sample.edge_index, device=device)
+            nn_pred = model.forward(sample.x, sample.edge_features, sample.edge_index)
              
             y_pred = (nn_pred > model.threshold).squeeze()
             y_true = (sample.y > 0).squeeze()
