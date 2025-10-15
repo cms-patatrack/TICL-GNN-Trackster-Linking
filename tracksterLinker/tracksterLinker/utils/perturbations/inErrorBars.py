@@ -18,5 +18,11 @@ def perturbate(node_features, num_samples=100, with_z=True, device=torch.device(
         data[:, :, GNNDataset.node_feature_dict["barycenter_x"]:GNNDataset.node_feature_dict["barycenter_y"]+1] += perts[:, :, :2]
     else:
         data[:, :, GNNDataset.node_feature_dict["barycenter_x"]:GNNDataset.node_feature_dict["barycenter_z"]+1] += perts
+
+    pose = data[:, :, GNNDataset.node_feature_dict["barycenter_x"]:GNNDataset.node_feature_dict["barycenter_z"]+1]
+    data[:, :, GNNDataset.node_feature_dict["barycenter_phi"]] = torch.arctan2(pose[:, :, 1], pose[:, :, 0]) 
+    theta = torch.arctan2(torch.sqrt(pose[:, :, 0]**2 + pose[:, :, 1]**2), pose[:, :, 2]) 
+    data[:, :, GNNDataset.node_feature_dict["barycenter_eta"]] = -torch.log(torch.tan(theta/2))
+
     return data
 
