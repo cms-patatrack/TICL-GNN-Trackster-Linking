@@ -17,11 +17,11 @@ from tracksterLinker.utils.graphUtils import print_graph_statistics, negative_ed
 from tracksterLinker.utils.plotResults import *
 
 
-load_weights = True
+load_weights = False
 model_name = "model_contr_small"
 
 base_folder = "/home/czeh"
-model_folder = osp.join(base_folder, "GNN/model_contr_attent")
+model_folder = osp.join(base_folder, "GNN/0002_model_large_contr_att")
 hist_folder = osp.join(base_folder, "new_graph_histo")
 data_folder_training = osp.join(base_folder, "GNN/dataset_hardronics")
 data_folder_test = osp.join(base_folder, "GNN/dataset_hardronics_test")
@@ -42,7 +42,7 @@ print(f"Using device: {device}")
 
 # Prepare Model
 start_epoch = 0
-epochs = 40
+epochs = 20
 
 # model = GNN_TrackLinkingNet(input_dim=len(dataset_training.model_feature_keys),
 #                             edge_feature_dim=dataset_training[0].edge_features.shape[1], niters=2,
@@ -50,7 +50,7 @@ epochs = 40
 #                             node_scaler=dataset_training.node_scaler, edge_scaler=dataset_training.edge_scaler)
 model = PUNet(input_dim=len(dataset_training.model_feature_keys),
                             edge_feature_dim=dataset_training[0].edge_features.shape[1], niters=4,
-                            edge_hidden_dim=16, hidden_dim=16, num_heads=8, weighted_aggr=True, dropout=0.3,
+                            edge_hidden_dim=64, hidden_dim=128, num_heads=8, weighted_aggr=True, dropout=0.3,
                             node_scaler=dataset_training.node_scaler, edge_scaler=dataset_training.edge_scaler)
 model = model.to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
@@ -58,7 +58,7 @@ optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 #increase weight on positive edges just a bit more
 alpha = 0.5 + negative_edge_imbalance(dataset_test)/2
 print(f"Focal loss with alpha={alpha}")
-loss_obj = CombinedLoss(alpha=alpha, gamma=2, margin=2.0, weightFocal=0.6, weightContrastive=0.4)
+loss_obj = CombinedLoss(alpha=alpha, gamma=2, margin=20.0, weightFocal=100, weightContrastive=0.0001)
 
 
 early_stopping = EarlyStopping(patience=20, delta=0)
@@ -70,8 +70,8 @@ date = f"{datetime.now():%Y-%m-%d}"
 if load_weights:
     weights = torch.load(osp.join(model_folder, f"{model_name}.pt"), weights_only=True)
     model.load_state_dict(weights["model_state_dict"], strict=False)
-    # optimizer.load_state_dict(weights["optimizer_state_dict"])
-    # start_epoch = weights["epoch"]
+    optimizer.load_state_dict(weights["optimizer_state_dict"])
+    start_epoch = weights["epoch"]
 
     save_model(model, 0, optimizer, [], [], output_folder=model_folder, filename=model_name, dummy_input=dataset_training[0])
 

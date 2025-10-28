@@ -20,7 +20,7 @@ def train(model, opt, loader, epoch, weighted="raw_energy", scores=False, emb_ou
         opt.zero_grad()
         emb, z = model.run(sample.x, sample.edge_features, sample.edge_index)
         weights = calc_weights(sample.edge_index, sample.x, node_feature_dict, name=weighted)
-        # print("z", z)
+        weights /= torch.max(weights)
 
         # compute the loss
         if scores:
@@ -34,9 +34,6 @@ def train(model, opt, loader, epoch, weighted="raw_energy", scores=False, emb_ou
 
             loss = loss_obj(z.squeeze(-1), emb.squeeze(-1), emb_dupl.squeeze(-1), sample.y, label, weights)
         else:
-            # print(z[z > 1])
-            # print(sample.y[sample.y > 1])
-            # print(weights[weights > 1])
             loss = loss_obj(z.squeeze(-1), torch.ceil(sample.y), weights)
 
         # back-propagate and update the weight
@@ -80,11 +77,10 @@ def test(model, loader, epoch, weighted="raw_energy", scores=False, loss_obj=Foc
             pu_edges[2] += torch.sum(weights[sample.PU_info[:, 2]] * (y_true[sample.PU_info[:, 2]] & ~y_pred[sample.PU_info[:, 2]])).item()
             pu_edges[3] += torch.sum(weights[sample.PU_info[:, 2]] * (~y_true[sample.PU_info[:, 2]] & ~y_pred[sample.PU_info[:, 2]])).item()
             
+            weights /= torch.max(weights)
             if scores:
                 val_loss += loss_obj(nn_pred.squeeze(-1), nn_emb.squeeze(-1), sample.y, sample.PU_info, weights).item()
             else:
-                # print(nn_pred)
-                # print(sample.y)
                 val_loss += loss_obj(nn_pred.squeeze(-1), sample.y, weights).item()
 
         val_loss /= len(loader)
@@ -111,6 +107,7 @@ def validate(model, loader, epoch, weighted="raw_energy", scores=False, loss_obj
             PU_info[1] += sample.PU_info[:, 1].tolist()
             PU_info[2] += sample.PU_info[:, 2].tolist()
             
+            weight /= torch.max(weight)
             if scores:
                 val_loss += loss_obj(nn_pred.squeeze(-1), nn_emb.squeeze(-1), sample.y, sample.PU_info, weight).item()
             else:
