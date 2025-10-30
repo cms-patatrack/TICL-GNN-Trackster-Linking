@@ -14,6 +14,7 @@ def train(model, opt, loader, epoch, weighted="raw_energy", scores=False, emb_ou
     epoch_loss = 0
 
     model.train()
+    step = 1
     for sample in tqdm(loader, desc=f"Training Epoch {epoch}"):
 
         # reset optimizer and enable training mode
@@ -41,7 +42,11 @@ def train(model, opt, loader, epoch, weighted="raw_energy", scores=False, emb_ou
         opt.step()
         epoch_loss += loss
 
-    return float(epoch_loss)/len(loader)
+        if step % 1000 == 0:
+            print(f"Step loss: {epoch_loss/step}")
+        step += 1
+
+    return float(epoch_loss)/step
 
 
 def test(model, loader, epoch, weighted="raw_energy", scores=False, loss_obj=FocalLoss(), device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'), node_feature_dict=GNNDataset.node_feature_dict):

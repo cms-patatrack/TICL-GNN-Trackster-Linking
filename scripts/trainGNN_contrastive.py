@@ -17,11 +17,11 @@ from tracksterLinker.utils.graphUtils import print_graph_statistics, negative_ed
 from tracksterLinker.utils.plotResults import *
 
 
-load_weights = False
-model_name = "model_contr_small"
+load_weights = True
+model_name = "start_model_dict"
 
 base_folder = "/home/czeh"
-model_folder = osp.join(base_folder, "GNN/0002_model_large_contr_att")
+model_folder = osp.join(base_folder, "GNN/0003_model_retrain_focus_contr")
 hist_folder = osp.join(base_folder, "new_graph_histo")
 data_folder_training = osp.join(base_folder, "GNN/dataset_hardronics")
 data_folder_test = osp.join(base_folder, "GNN/dataset_hardronics_test")
@@ -82,7 +82,8 @@ train_loss_hist = []
 val_loss_hist = []
 
 print(scheduler.get_last_lr())
-for epoch in range(start_epoch, start_epoch+epochs):
+last_epoch = start_epoch + epochs
+for epoch in range(start_epoch, last_epoch):
     print(f'Epoch: {epoch+1}')
     loss = train(model, optimizer, train_dl, epoch+1, loss_obj=loss_obj, scores=True)
     train_loss_hist.append(loss)
@@ -101,11 +102,11 @@ for epoch in range(start_epoch, start_epoch+epochs):
     print("Only PU trackster:") 
     print_acc_scores_from_precalc(*pu_edges)
     
-    if ((epoch + 5) % 5 == 0):
+    if ((epoch % 5 == 0) or (epoch + 1 == last_epoch)):
         print("Store Model")
         save_model(model, epoch, optimizer, train_loss_hist, val_loss_hist, output_folder=model_folder, filename=f"model_{date}", dummy_input=dataset_training[0])
 
-    if ((epoch + 20) % 20 == 0):
+    if ((epoch % 5 == 0) or (epoch + 1 == last_epoch)):
         print("Store Diagrams")
 
         val_loss, pred, y, weight, PU_info = validate(model, test_dl, epoch+1, loss_obj=loss_obj.focal, weighted="raw_energy")
