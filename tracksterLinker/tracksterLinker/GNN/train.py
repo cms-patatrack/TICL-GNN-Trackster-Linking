@@ -39,7 +39,7 @@ def train(model, opt, loader, epoch, weighted="raw_energy", scores=False, emb_ou
 
         # back-propagate and update the weight
         loss.backward()
-        torch.nn.utils.clip_grad_value_(model.parameters(), clip_value=1.0)
+        torch.nn.utils.clip_grad_value_(model.parameters(), clip_value=0.5)
         opt.step()
         epoch_loss += loss
 

@@ -103,13 +103,18 @@ class EncoderLayer(nn.Module):
         self.feed_forward = PositionWiseFeedForward(d_model, d_ff)
         self.norm1 = nn.LayerNorm(d_model)
         self.norm2 = nn.LayerNorm(d_model)
+        self.final_norm = nn.LayerNorm(d_model)
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x, mask: Optional[torch.Tensor]=None):
-        attn_output = self.self_attn(x, x, x, mask=mask)
-        x = self.norm1(x + self.dropout(attn_output))
-        ff_output = self.feed_forward(x)
-        x = self.norm2(x + self.dropout(ff_output))
+    # Pre-Norm variant
+    def forward(self, x, mask: Optional[torch.Tensor] = None):
+        norm_x = self.norm1(x)
+        attn_output = self.self_attn(norm_x, norm_x, norm_x, mask=mask)
+        x = x + self.dropout(attn_output)
+        
+        ff_output = self.feed_forward(self.norm2(x))
+        x = x + self.dropout(ff_output)
+        x = self.final_norm(x)
         return x
 
 
