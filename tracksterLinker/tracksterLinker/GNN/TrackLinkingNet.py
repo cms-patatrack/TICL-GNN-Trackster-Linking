@@ -114,9 +114,10 @@ class GNN_TrackLinkingNet(nn.Module):
         self.outputnetwork = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim),
             nn.LeakyReLU(),
-            nn.Linear(hidden_dim, output_dim),
-            nn.Sigmoid()
+            nn.Linear(hidden_dim, output_dim)
         )
+
+        self.scale = nn.Sigmoid()
 
     def run(self, X, edge_features, edge_index):
         edge_features = (edge_features + 10e-5) / self.edge_scaler
@@ -148,4 +149,4 @@ class GNN_TrackLinkingNet(nn.Module):
 
     def forward(self, X, edge_features, edge_index):
         embedding, pred = self.run(X, edge_features, edge_index)
-        return pred
+        return self.scale(pred)

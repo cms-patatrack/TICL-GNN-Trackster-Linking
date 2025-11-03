@@ -80,7 +80,7 @@ def test(model, loader, epoch, weighted="raw_energy", scores=False, loss_obj=Foc
             nn_emb, nn_pred = model.run(sample.x, sample.edge_features, sample.edge_index)
             weights = calc_weights(sample.edge_index, sample.x, node_feature_dict, name=weighted)
 
-            y_pred = (nn_pred > model.threshold).squeeze()
+            y_pred = (model.scale(nn_pred) > model.threshold).squeeze()
             y_true = (sample.y > 0).squeeze()
 
             cross_edges[0] += torch.sum(weights[sample.PU_info[:, 0]] * (y_true[sample.PU_info[:, 0]] & y_pred[sample.PU_info[:, 0]])).item()
@@ -124,7 +124,7 @@ def validate(model, loader, epoch, weighted="raw_energy", scores=False, loss_obj
             
         for sample in tqdm(loader, desc=f"Validation Epoch {epoch}"):
             nn_emb, nn_pred = model.run(sample.x, sample.edge_features, sample.edge_index)
-            pred += nn_pred.squeeze(-1).tolist()
+            pred += model.scale(nn_pred).squeeze(-1).tolist()
             y += sample.y.tolist()
             weight = calc_weights(sample.edge_index, sample.x, node_feature_dict, name=weighted)
             weights += weight.tolist()
@@ -134,9 +134,9 @@ def validate(model, loader, epoch, weighted="raw_energy", scores=False, loss_obj
             PU_info[2] += sample.PU_info[:, 2].tolist()
             
             # rescale weights to interval [0, 1]
-            weights /= 300
-            weights = torch.clamp(weights, 0.0, 1.0)
-            weights = weights.detach()
+            weight /= 300
+            weight = torch.clamp(weight, 0.0, 1.0)
+            weight = weight.detach()
 
             if scores:
                 loss = loss_obj(nn_pred.squeeze(-1), nn_emb.squeeze(-1), sample.y, sample.PU_info, weight).item()
