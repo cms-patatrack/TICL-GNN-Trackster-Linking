@@ -15,13 +15,18 @@ def train(model, opt, loader, epoch, weighted="raw_energy", scores=False, emb_ou
 
     model.train()
     step = 1
+    last_loss = 0
     for sample in tqdm(loader, desc=f"Training Epoch {epoch}"):
 
         # reset optimizer and enable training mode
-        opt.zero_grad()
+        opt.zero_grad(set_to_none=True)
         emb, z = model.run(sample.x, sample.edge_features, sample.edge_index)
         weights = calc_weights(sample.edge_index, sample.x, node_feature_dict, name=weighted)
-        weights /= torch.max(weights)
+        
+        # rescale weights to interval [0, 1]
+        weights /= 300
+        weights = torch.clamp(weights, 0.0, 1.0)
+        weights = weights.detach()
 
         # compute the loss
         if scores:
@@ -38,13 +43,23 @@ def train(model, opt, loader, epoch, weighted="raw_energy", scores=False, emb_ou
             loss = loss_obj(z.squeeze(-1), torch.ceil(sample.y), weights)
 
         # back-propagate and update the weight
+        if not torch.isfinite(loss): raise RuntimeError("Non-finite loss")
         loss.backward()
-        torch.nn.utils.clip_grad_value_(model.parameters(), clip_value=0.5)
+        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0) 
+        # print(f"total grad norm: {grad_norm:.2f}")
+
+        # skip update if grad_norm is suspiciously large
+        if (not torch.isfinite(grad_norm)) or grad_norm > 1e3:
+            print(f"[WARN] Bad grad norm {grad_norm} at step {step}, skipping update.")
+            opt.zero_grad(set_to_none=True)
+            continue
+
         opt.step()
-        epoch_loss += loss
+        epoch_loss += loss.item()
 
         if step % 1000 == 0:
-            print(f"Step loss: {epoch_loss/step}")
+            last_loss = epoch_loss/step
+            print(f"Step loss: {last_loss}")
         step += 1
 
     return float(epoch_loss)/step
@@ -83,11 +98,16 @@ def test(model, loader, epoch, weighted="raw_energy", scores=False, loss_obj=Foc
             pu_edges[2] += torch.sum(weights[sample.PU_info[:, 2]] * (y_true[sample.PU_info[:, 2]] & ~y_pred[sample.PU_info[:, 2]])).item()
             pu_edges[3] += torch.sum(weights[sample.PU_info[:, 2]] * (~y_true[sample.PU_info[:, 2]] & ~y_pred[sample.PU_info[:, 2]])).item()
             
-            weights /= torch.max(weights)
+            # rescale weights to interval [0, 1]
+            weights /= 300
+            weights = torch.clamp(weights, 0.0, 1.0)
+            weights = weights.detach()
+
             if scores:
-                val_loss += loss_obj(nn_pred.squeeze(-1), nn_emb.squeeze(-1), sample.y, sample.PU_info, weights).item()
+                loss = loss_obj(nn_pred.squeeze(-1), nn_emb.squeeze(-1), sample.y, sample.PU_info, weights).item()
             else:
-                val_loss += loss_obj(nn_pred.squeeze(-1), sample.y, weights).item()
+                loss = loss_obj(nn_pred.squeeze(-1), sample.y, weights).item()
+            val_loss += loss
 
         val_loss /= len(loader)
         return val_loss, cross_edges, signal_edges, pu_edges 
@@ -113,11 +133,16 @@ def validate(model, loader, epoch, weighted="raw_energy", scores=False, loss_obj
             PU_info[1] += sample.PU_info[:, 1].tolist()
             PU_info[2] += sample.PU_info[:, 2].tolist()
             
-            weight /= torch.max(weight)
+            # rescale weights to interval [0, 1]
+            weights /= 300
+            weights = torch.clamp(weights, 0.0, 1.0)
+            weights = weights.detach()
+
             if scores:
-                val_loss += loss_obj(nn_pred.squeeze(-1), nn_emb.squeeze(-1), sample.y, sample.PU_info, weight).item()
+                loss = loss_obj(nn_pred.squeeze(-1), nn_emb.squeeze(-1), sample.y, sample.PU_info, weight).item()
             else:
-                val_loss += loss_obj(nn_pred.squeeze(-1), torch.ceil(sample.y), weight).item()
+                loss = loss_obj(nn_pred.squeeze(-1), torch.ceil(sample.y), weight).item()
+            val_loss += loss
 
         val_loss /= len(loader)
     return val_loss, torch.tensor(pred), torch.tensor(y), torch.tensor(weights), torch.tensor(PU_info)

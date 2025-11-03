@@ -95,8 +95,9 @@ class PUNet(nn.Module):
             nn.Linear(hidden_dim, hidden_dim),
             nn.LeakyReLU(),
             nn.Linear(hidden_dim, output_dim),
-            nn.Sigmoid()
         )
+
+        self.scale = nn.Sigmoid()
 
     def run(self, X, edge_features, edge_index):
         edge_features = (edge_features + 10e-5) / self.edge_scaler
@@ -134,4 +135,4 @@ class PUNet(nn.Module):
 
     def forward(self, X, edge_features, edge_index):
         emb, pred = self.run(X, edge_features, edge_index)
-        return pred
+        return self.scale(pred)
