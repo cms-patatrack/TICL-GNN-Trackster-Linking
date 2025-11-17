@@ -49,7 +49,7 @@ def train(model, opt, loader, epoch, weighted="raw_energy", scores=False, emb_ou
         # print(f"total grad norm: {grad_norm:.2f}")
 
         # skip update if grad_norm is suspiciously large
-        if (not torch.isfinite(grad_norm)) or grad_norm > 1e3:
+        if (not torch.isfinite(grad_norm)) or (epoch > 5 and grad_norm > 1e4):
             print(f"[WARN] Bad grad norm {grad_norm} at step {step}, skipping update.")
             opt.zero_grad(set_to_none=True)
             continue
