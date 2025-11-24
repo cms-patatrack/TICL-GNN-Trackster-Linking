@@ -18,10 +18,10 @@ from tracksterLinker.utils.plotResults import *
 
 
 load_weights = True 
-model_name = "start_model"
+model_name = "model_2025-11-19_epoch_5_dict"
 
 base_folder = "/home/czeh"
-model_folder = osp.join(base_folder, "GNN/0005_signal_pu_edges")
+model_folder = osp.join(base_folder, "GNN/0006_retrain_high_energy_focus")
 hist_folder = osp.join(base_folder, "GNN/histo")
 data_folder_training = osp.join(base_folder, "GNN/dataset_hardronics")
 data_folder_test = osp.join(base_folder, "GNN/dataset_hardronics_test")
@@ -41,7 +41,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
 # Prepare Model
-start_epoch = 0
+start_epoch = 5
 epochs = 60
 
 # model = GNN_TrackLinkingNet(input_dim=len(dataset_training.model_feature_keys),
@@ -54,7 +54,7 @@ model = PUNet(input_dim=len(dataset_training.model_feature_keys),
                             node_scaler=dataset_training.node_scaler, edge_scaler=dataset_training.edge_scaler)
 model = model.to(device)
 # LR is upper bound for Adam
-optimizer = torch.optim.AdamW(model.parameters(), lr=2e-4, betas=(0.9, 0.95),
+optimizer = torch.optim.AdamW(model.parameters(), lr=2e-5, betas=(0.9, 0.95),
                               eps=1e-8, weight_decay=0.01, amsgrad=True)
 
 #increase weight on positive edges just a bit more
