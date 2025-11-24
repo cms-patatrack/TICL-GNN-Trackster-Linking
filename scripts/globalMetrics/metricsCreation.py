@@ -89,9 +89,6 @@ if __name__ == "__main__":
                     except Exception as e:
                         print(f"[ERROR in worker] {e}")
 
-
-            #metrics = graph_dist(graph_true, graph_pred, sample.x, sample.isPU, device=device, verbose=True)
-            #torch.save(metrics, osp.join(output_folder, "metrics", f"graph_{i}.pt"))
             i += 1
 
         for f in as_completed(futures):

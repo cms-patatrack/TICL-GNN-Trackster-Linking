@@ -19,7 +19,7 @@ from tracksterLinker.utils.dataStatistics import *
 from tracksterLinker.utils.graphUtils import *
 from tracksterLinker.utils.graphMetric import *
 
-from tracksterLinker.utils.perturbations.allNodes import perturbate
+from tracksterLinker.utils.perturbations.inErrorBars import perturbate
 
 def wait_some(futures):
     """Wait until at least one future completes, return (done, not_done)."""
@@ -35,13 +35,13 @@ def compute_and_save(graph_true, graph_pred, data, isPU, device, verbose, path, 
 
 if __name__ == "__main__":
     mp.set_start_method("spawn", force=True)
-    model_name = "model-08-21"
+    model_name = "0002_model_large_contr_att"
 
     base_folder = "/home/czeh"
-    model_folder = osp.join(base_folder, "GNN/model")
+    model_folder = osp.join(base_folder, "GNN/models")
     output_folder = "/eos/user/c/czeh/stabilityCheck/energy_perturbations"
-    hist_folder = osp.join(base_folder, "GNN/full_PU")
-    data_folder = osp.join(base_folder, "GNN/datasetPU")
+    hist_folder = osp.join(base_folder, "GNN/histo")
+    data_folder = osp.join(base_folder, "GNN/dataset_hardronics_test")
     os.makedirs(model_folder, exist_ok=True)
 
     # Prepare Dataset
@@ -65,7 +65,7 @@ if __name__ == "__main__":
     with ProcessPoolExecutor(max_workers=min(32, n_perturb+1)) as executor:
         for sample in data_loader:
             print(f"Graph {i}")
-            nn_pred = model.forward(sample.x, sample.edge_features, sample.edge_index, device=device)
+            nn_pred = model.forward(sample.x, sample.edge_features, sample.edge_index)
              
             y_pred = (nn_pred > model.threshold).squeeze()
             y_true = (sample.y > 0).squeeze()
@@ -81,14 +81,11 @@ if __name__ == "__main__":
                 osp.join(output_folder, f"{i}", "baseline.pt"),
             ))
 
-            #metrics = graph_dist(graph_true, graph_pred, sample.x, sample.isPU, device=device, verbose=True)
-            #torch.save(metrics, osp.join(output_folder, f"{i}", f"baseline.pt"))
-
-            random_values, perturbated_data = perturbate(sample.x, "raw_energy", max_val=10, num_data=n_perturb)
+            perturbated_data = perturbate(sample.x, num_samples=n_perturb, device=device)
 
             for j, data in enumerate(perturbated_data):
-                print(f"Perturbated Graph {j}: {random_values[j]}")
-                nn_pred = model.forward(data, sample.edge_features, sample.edge_index, device=device)
+                print(f"Perturbated Graph {j}")
+                nn_pred = model.forward(data, sample.edge_features, sample.edge_index)
                  
                 y_pred = (nn_pred > model.threshold).squeeze()
                 y_true = (sample.y > 0).squeeze()
@@ -100,7 +97,7 @@ if __name__ == "__main__":
                     compute_and_save,
                     graph_true, graph_pred, data, sample.isPU, device, True,
                     osp.join(output_folder, f"{i}", f"graph_{j}.pt"),
-                    {"allNodes_perturb": random_values[j]},
+                    {"allNodes_perturb": j},
                 ))
 
             if len(futures) > 2 * max_workers:
