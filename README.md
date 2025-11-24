@@ -10,24 +10,6 @@
 
 ---
 
-## Table of Contents
-
-- [Repository Structure](#repository-structure)
-- [Installation](#installation)
-- [Data & Inputs](#data--inputs)
-- [How to Use](#how-to-use)
-  - [Training](#training)
-  - [Evaluation](#evaluation)
-  - [Notebooks](#notebooks)
-- [Results](#results)
-- [Configuration](#configuration)
-- [Development Notes](#development-notes)
-- [Citing](#citing)
-- [License](#license)
-- [Acknowledgements](#acknowledgements)
-
----
-
 ## Repository Structure
 
 ```text
