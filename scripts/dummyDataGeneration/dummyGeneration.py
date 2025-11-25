@@ -116,7 +116,7 @@ def plot_event_3d(events):
 
 
 if __name__ == '__main__':
-    base_folder = "/data/czehlinking_dataset"
+    base_folder = "/data/czeh/linking_dataset"
     in_folder = osp.join(base_folder, "dummy_data/data_stats")
     data_folder = osp.join(base_folder, "dummy_data/data")
     data = np.load(osp.join(in_folder, "simTrackster.npz"), allow_pickle=True)
