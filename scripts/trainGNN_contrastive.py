@@ -57,27 +57,27 @@ model = model.to(device)
 optimizer = torch.optim.AdamW(model.parameters(), lr=2e-5, betas=(0.9, 0.95),
                               eps=1e-8, weight_decay=0.01, amsgrad=True)
 
-#increase weight on positive edges just a bit more
+#increase weight on positive edges based on class imbalance
 alpha = 0.5 + negative_edge_imbalance(dataset_test)/2
 print(f"Focal loss with alpha={alpha}")
 loss_obj = CombinedLoss(alpha=alpha, gamma=2, margin=2.0, weightFocal=100, weightContrastive=0.0001)
 
-
 early_stopping = EarlyStopping(patience=20, delta=0)
 model.apply(weight_init)
-
-# Load weights if needed
 date = f"{datetime.now():%Y-%m-%d}"
 
+# Load weights if needed
 if load_weights:
     weights = torch.load(osp.join(model_folder, f"{model_name}.pt"), weights_only=True)
     model.load_state_dict(weights["model_state_dict"], strict=False)
+
+    # uncomment to continue training exactly where left off
     # optimizer.load_state_dict(weights["optimizer_state_dict"])
     # start_epoch = weights["epoch"]
 
     save_model(model, 0, optimizer, [], [], output_folder=model_folder, filename=model_name, dummy_input=dataset_training[0])
 
-# Scheduler after weight loading, to take new epoch size into account
+# Scheduler after weight loading, to take new epoch count into account
 scheduler = CosineAnnealingLR(optimizer, T_max=start_epoch+epochs)
 
 train_loss_hist = []

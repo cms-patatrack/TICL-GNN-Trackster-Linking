@@ -18,13 +18,13 @@ from tracksterLinker.utils.graphUtils import *
 from tracksterLinker.utils.graphMetric import *
 from tracksterLinker.utils.graphHeatMap import GraphHeatmap
 
-model_name = "model-08-21"
+model_name = "0002_model_large_contr_att"
 
 base_folder = "/home/czeh"
-model_folder = osp.join(base_folder, "GNN/model")
-output_folder = "/eos/user/c/czeh/stabilityCheck/energy_perturbations"
-hist_folder = osp.join(base_folder, "GNN/full_PU")
-data_folder = osp.join(base_folder, "GNN/datasetPU")
+model_folder = osp.join(base_folder, "GNN/models")
+output_folder = osp.join(base_folder, f"GNN/{model_name}_energy_perturbations")
+hist_folder = osp.join(base_folder, "GNN/histo")
+data_folder = osp.join(base_folder, "GNN/dataset_hardronics_test")
 os.makedirs(model_folder, exist_ok=True)
 
 # Prepare Dataset
@@ -60,7 +60,7 @@ for graph_path in graph_folders:
     for file in files:
         print(file)
         metrics = torch.load(file, weights_only=False)
-        #print(torch.max(metrics["features"][:, NeoGNNDataset.node_feature_dict["barycenter_eta"]]))
+        # print(torch.max(metrics["features"][:, NeoGNNDataset.node_feature_dict["barycenter_eta"]]))
         
         hm_dU_signal.add_graph(torch.abs(metrics["features"][~metrics["isPU"], NeoGNNDataset.node_feature_dict["barycenter_eta"]]).cpu(), metrics["features"][~metrics["isPU"], NeoGNNDataset.node_feature_dict["barycenter_phi"]].cpu(), baseline_metrics["comp_dU_Signal"] - metrics["comp_dU_Signal"])
         hm_dO_signal.add_graph(torch.abs(metrics["features"][~metrics["isPU"], NeoGNNDataset.node_feature_dict["barycenter_eta"]]).cpu(), metrics["features"][~metrics["isPU"], NeoGNNDataset.node_feature_dict["barycenter_phi"]].cpu(), baseline_metrics["comp_dO_Signal"] - metrics["comp_dO_Signal"])

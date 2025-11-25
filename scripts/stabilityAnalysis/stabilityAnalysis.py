@@ -12,6 +12,7 @@ from torch_geometric.loader.dataloader import DataLoader
 import matplotlib.pyplot as plt
 
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import wait, FIRST_COMPLETED
 import torch.multiprocessing as mp
 
 from tracksterLinker.datasets.NeoGNNDataset import NeoGNNDataset
@@ -39,10 +40,11 @@ if __name__ == "__main__":
 
     base_folder = "/home/czeh"
     model_folder = osp.join(base_folder, "GNN/models")
-    output_folder = "/eos/user/c/czeh/stabilityCheck/energy_perturbations"
+    output_folder = osp.join(base_folder, f"GNN/{model_name}_energy_perturbations")
     hist_folder = osp.join(base_folder, "GNN/histo")
     data_folder = osp.join(base_folder, "GNN/dataset_hardronics_test")
     os.makedirs(model_folder, exist_ok=True)
+    os.makedirs(output_folder, exist_ok=True)
 
     # Prepare Dataset
     batch_size = 1
@@ -62,7 +64,8 @@ if __name__ == "__main__":
 
     n_perturb = 30
     futures = []
-    with ProcessPoolExecutor(max_workers=min(32, n_perturb+1)) as executor:
+    max_workers = min(32, n_perturb+1) 
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
         for sample in data_loader:
             print(f"Graph {i}")
             nn_pred = model.forward(sample.x, sample.edge_features, sample.edge_index)
