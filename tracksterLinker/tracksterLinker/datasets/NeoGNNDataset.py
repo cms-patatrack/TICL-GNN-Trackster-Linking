@@ -61,7 +61,7 @@ class NeoGNNDataset(Dataset):
     model_feature_keys = node_feature_keys 
     edge_feature_keys = ["raw_energy", "barycenter_z", "barycenter_xy", "eigenvector0", "time"]
 
-    def __init__(self, root, histo_path, test=False, edge_scaler=None, node_scaler=None, only_signal=False, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
+    def __init__(self, root, histo_path=None, test=False, edge_scaler=None, node_scaler=None, only_signal=False, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
         self.test = test
         self.root_dir = root
         self.histo_path = histo_path
@@ -79,8 +79,11 @@ class NeoGNNDataset(Dataset):
         else:
             self.edge_scaler = edge_scaler
 
-        self._process()
-        print("Done")
+        if (histo_path is not None):
+            self._process()
+            print("Done Processing")
+        else:
+            print("Done Loading")
 
         super().__init__()
 

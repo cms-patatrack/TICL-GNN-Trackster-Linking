@@ -58,7 +58,10 @@ scripts/
 ````
 
 ---
-## Installation
+
+## Run
+
+### Installation
 
 Clone the repository:
 
@@ -72,8 +75,37 @@ Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
-
 ---
+
+### Train
+
+On the `patatrack-bg-01.cern.ch` machine the dataset for the GNN is provided. To train the GNN with contrastive learning, change the model specific data of the file `scripts/trainGNN_contrastive.py`.
+
+```python
+load_weights = True  # If pretrained model should be used for startup
+model_name = "model_2025-11-19_epoch_5_dict" # Name of the pretrained
+
+base_folder = "/data/czeh"
+load_model_folder = osp.join(base_folder, "model_results/0002_model_large_contr_att") # path to pretrained model
+model_folder = osp.join(base_folder, "training_data/9999_CHANGE_TO_NEW_MODEL") # path to store trained model data and validation plots
+data_folder_training = osp.join(base_folder, "linking_dataset/dataset_hardronics") # path to train dataset
+data_folder_test = osp.join(base_folder, "linking_dataset/dataset_hardronics_test") # path to test dataset
+```
+
+Then call:
+
+```
+python3 scripts/trainGNN_contrastive.py
+```
+
+For the focal only training with the script `trainGNN.py` the procedure is the same. However no pretrained model exists, and the model architecture is without multi head attention, `GNN_TrackLinkingNet`. `PUNet` in directory `multiGNN` uses the multi head attention.
+
+```python
+model = GNN_TrackLinkingNet(input_dim=len(dataset_training.model_feature_keys),
+                            edge_feature_dim=dataset_training[0].edge_features.shape[1], niters=4,
+                            edge_hidden_dim=32, hidden_dim=64, weighted_aggr=True, dropout=0.3,
+                            node_scaler=dataset_training.node_scaler, edge_scaler=dataset_training.edge_scaler)
+```
 
 ## Development Notes
 

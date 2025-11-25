@@ -17,20 +17,22 @@ from tracksterLinker.utils.graphUtils import print_graph_statistics, negative_ed
 from tracksterLinker.utils.plotResults import *
 
 
+# Change to False to start training new model
 load_weights = True 
 model_name = "model_2025-11-19_epoch_5_dict"
 
-base_folder = "/home/czeh"
-model_folder = osp.join(base_folder, "GNN/0006_retrain_high_energy_focus")
-hist_folder = osp.join(base_folder, "GNN/histo")
-data_folder_training = osp.join(base_folder, "GNN/dataset_hardronics")
-data_folder_test = osp.join(base_folder, "GNN/dataset_hardronics_test")
+base_folder = "/data/czeh"
+load_model_folder = osp.join(base_folder, "model_results/0002_model_large_contr_att")
+model_folder = osp.join(base_folder, "training_data/9999_CHANGE_TO_NEW_MODEL")
+data_folder_training = osp.join(base_folder, "linking_dataset/dataset_hardronics")
+data_folder_test = osp.join(base_folder, "linking_dataset/dataset_hardronics_test")
 os.makedirs(model_folder, exist_ok=True)
 
 # Prepare Dataset
 batch_size = 1
-dataset_training = NeoGNNDataset(data_folder_training, hist_folder, only_signal=False)
-dataset_test = NeoGNNDataset(data_folder_test, hist_folder, test=True, only_signal=False)
+# Datset stored at patatrack-bg-01.cern.ch
+dataset_training = NeoGNNDataset(data_folder_training, only_signal=False)
+dataset_test = NeoGNNDataset(data_folder_test, test=True, only_signal=False)
 train_dl = DataLoader(dataset_training, shuffle=True, batch_size=batch_size)
 test_dl = DataLoader(dataset_test, shuffle=True, batch_size=batch_size)
 print(f"Training Dataset: {len(train_dl)}, Test Dataset: {len(test_dl)}")
@@ -44,10 +46,6 @@ print(f"Using device: {device}")
 start_epoch = 5
 epochs = 60
 
-# model = GNN_TrackLinkingNet(input_dim=len(dataset_training.model_feature_keys),
-#                             edge_feature_dim=dataset_training[0].edge_features.shape[1], niters=2,
-#                             edge_hidden_dim=16, hidden_dim=16, weighted_aggr=True, dropout=0.3,
-#                             node_scaler=dataset_training.node_scaler, edge_scaler=dataset_training.edge_scaler)
 model = PUNet(input_dim=len(dataset_training.model_feature_keys),
                             edge_feature_dim=dataset_training[0].edge_features.shape[1], niters=4,
                             edge_hidden_dim=64, hidden_dim=128, num_heads=8, weighted_aggr=True, dropout=0.3,
@@ -68,7 +66,7 @@ date = f"{datetime.now():%Y-%m-%d}"
 
 # Load weights if needed
 if load_weights:
-    weights = torch.load(osp.join(model_folder, f"{model_name}.pt"), weights_only=True)
+    weights = torch.load(osp.join(load_model_folder, f"{model_name}.pt"), weights_only=True)
     model.load_state_dict(weights["model_state_dict"], strict=False)
 
     # uncomment to continue training exactly where left off
