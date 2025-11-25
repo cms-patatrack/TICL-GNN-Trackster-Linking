@@ -141,7 +141,7 @@ def validate(model, loader, epoch, weighted="raw_energy", scores=False, loss_obj
             if scores:
                 loss = loss_obj(nn_pred.squeeze(-1), nn_emb.squeeze(-1), sample.y, sample.PU_info, weight).item()
             else:
-                loss = loss_obj(nn_pred.squeeze(-1), torch.ceil(sample.y), weight).item()
+                loss = loss_obj(nn_pred.squeeze(-1), sample.y, weight).item()
             val_loss += loss
 
         val_loss /= len(loader)

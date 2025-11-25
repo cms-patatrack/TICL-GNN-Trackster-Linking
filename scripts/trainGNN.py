@@ -16,20 +16,22 @@ from tracksterLinker.utils.graphUtils import print_graph_statistics, negative_ed
 from tracksterLinker.utils.plotResults import *
 
 
+# No ready trained model for this available
 load_weights = False
-model_name = "model_2025-09-22_final_loss_-0.6001_epoch_31_dict"
+model_name = ""
 
-base_folder = "/home/czeh"
-model_folder = osp.join(base_folder, "GNN/modelfocal_small")
-hist_folder = osp.join(base_folder, "new_graph_histo")
-data_folder_training = osp.join(base_folder, "GNN/dataset_hardronics")
-data_folder_test = osp.join(base_folder, "GNN/dataset_hardronics_test")
+base_folder = "/data/czeh"
+load_model_folder = osp.join(base_folder, "model_results/0002_model_large_contr_att")
+model_folder = osp.join(base_folder, "training_data/9999_CHANGE_TO_NEW_MODEL")
+data_folder_training = osp.join(base_folder, "linking_dataset/dataset_hardronics")
+data_folder_test = osp.join(base_folder, "linking_dataset/dataset_hardronics_test")
 os.makedirs(model_folder, exist_ok=True)
 
 # Prepare Dataset
 batch_size = 1
-dataset_training = NeoGNNDataset(data_folder_training, hist_folder)
-dataset_test = NeoGNNDataset(data_folder_test, hist_folder, test=True)
+# Datset stored at patatrack-bg-01.cern.ch
+dataset_training = NeoGNNDataset(data_folder_training)
+dataset_test = NeoGNNDataset(data_folder_test, test=True)
 train_dl = DataLoader(dataset_training, shuffle=True, batch_size=batch_size)
 test_dl = DataLoader(dataset_test, shuffle=True, batch_size=batch_size)
 print(f"Training Dataset: {len(train_dl)}, Test Dataset: {len(test_dl)}")
@@ -53,7 +55,7 @@ optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 #increase weight on positive edges just a bit more
 alpha = 0.5 + negative_edge_imbalance(dataset_test)/2
 print(f"Focal loss with alpha={alpha}")
-loss_obj = FocalLoss(alpha=alpha, gamma=2)
+loss_obj = FocalLossLogits(alpha=alpha, gamma=2)
 
 
 early_stopping = EarlyStopping(patience=20, delta=0)
@@ -63,7 +65,7 @@ model.apply(weight_init)
 date = f"{datetime.now():%Y-%m-%d}"
 
 if load_weights:
-    weights = torch.load(osp.join(model_folder, f"{model_name}.pt"), weights_only=True)
+    weights = torch.load(osp.join(load_model_folder, f"{model_name}.pt"), weights_only=True)
     model.load_state_dict(weights["model_state_dict"])
     optimizer.load_state_dict(weights["optimizer_state_dict"])
     start_epoch = weights["epoch"]
@@ -78,10 +80,10 @@ val_loss_hist = []
 
 for epoch in range(start_epoch, start_epoch+epochs):
     print(f'Epoch: {epoch+1}')
-    loss = train(model, optimizer, train_dl, epoch+1, loss_obj=loss_obj, node_feature_dict=DummyDataset.node_feature_dict)
+    loss = train(model, optimizer, train_dl, epoch+1, loss_obj=loss_obj, node_feature_dict=NeoGNNDataset.node_feature_dict)
     train_loss_hist.append(loss)
 
-    val_loss, cross_edges, signal_edges, pu_edges = test(model, test_dl, epoch+1, loss_obj=loss_obj, device=device, weighted="raw_energy", node_feature_dict=DummyDataset.node_feature_dict)
+    val_loss, cross_edges, signal_edges, pu_edges = test(model, test_dl, epoch+1, loss_obj=loss_obj, device=device, weighted="raw_energy", node_feature_dict=NeoGNNDataset.node_feature_dict)
     val_loss_hist.append(val_loss)
     print(f'Training loss: {loss}, Validation loss: {val_loss}, Learning Rate: {scheduler.get_last_lr()}')
 
@@ -98,7 +100,7 @@ for epoch in range(start_epoch, start_epoch+epochs):
     if ((epoch+1) % 10 == 0):
         print("Store Diagrams")
 
-        val_loss, pred, y, weight, PU_info = validate(model, test_dl, epoch+1, loss_obj=loss_obj, weighted="raw_energy", node_feature_dict=DummyDataset.node_feature_dict)
+        val_loss, pred, y, weight, PU_info = validate(model, test_dl, epoch+1, loss_obj=loss_obj, weighted="raw_energy", node_feature_dict=NeoGNNDataset.node_feature_dict)
         threshold = get_best_threshold(pred, y, weight)
         model.threshold = threshold
 
