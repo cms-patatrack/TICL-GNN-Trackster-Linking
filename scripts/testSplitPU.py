@@ -11,12 +11,11 @@ import networkx as nx
 import numpy as np
 from tqdm import tqdm
 
-base_folder = "/home/czeh"
-hist_folder = osp.join(base_folder, "histo_fullPU")
-data_folder_test = osp.join(base_folder, "GNN/datasetPU_test")
+base_folder = "/data/czeh"
+data_folder_test = osp.join(base_folder, "linking_dataset/dataset_hardronics_test")
 batch_size = 1
 
-dataset_test = NeoGNNDataset(data_folder_test, hist_folder, test=True)
+dataset_test = NeoGNNDataset(data_folder_test, test=True)
 test_dl = DataLoader(dataset_test, shuffle=True, batch_size=batch_size)
 
 device = torch.device('cuda' if torch.cuda.is_available() else "cpu")

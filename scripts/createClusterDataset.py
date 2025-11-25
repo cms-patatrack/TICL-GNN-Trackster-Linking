@@ -9,12 +9,11 @@ print(f"Using device: {device}, number of devices: {torch.cuda.device_count()}")
 
 torch.multiprocessing.set_start_method('spawn')
 
-base_folder = "/home/czeh"
-model_folder = osp.join(base_folder, "transformer/model")
-data_folder_training = osp.join(base_folder, "GNN/dataset")
-store_folder_training = osp.join(base_folder, "transformer/dataset")
-data_folder_test = osp.join(base_folder, "GNN/dataset_test")
-store_folder_test = osp.join(base_folder, "transformer/dataset_test")
+base_folder = "/data/czeh"
+data_folder_training = osp.join(base_folder, "linking_dataset/dataset_hardronics")
+store_folder_training = osp.join(base_folder, "linking_dataset/dataset_hardronics_tokens")
+data_folder_test = osp.join(base_folder, "linking_dataset/dataset_hardronics_test")
+store_folder_test = osp.join(base_folder, "linking_dataset/dataset_hardronics_test_tokens")
 
 testBuilder = ClusterDatasetBuilder(store_folder_test, data_folder_test, input_length=input_length)
 

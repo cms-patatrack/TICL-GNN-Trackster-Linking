@@ -18,29 +18,21 @@ from tracksterLinker.utils.graphUtils import *
 from tracksterLinker.utils.graphMetric import *
 from tracksterLinker.utils.graphHeatMap import GraphHeatmap
 
-model_name = "0002_model_large_contr_att"
-
-base_folder = "/home/czeh"
-model_folder = osp.join(base_folder, "GNN/models")
-output_folder = osp.join(base_folder, f"GNN/{model_name}_energy_perturbations")
-hist_folder = osp.join(base_folder, "GNN/histo")
-data_folder = osp.join(base_folder, "GNN/dataset_hardronics_test")
-os.makedirs(model_folder, exist_ok=True)
+base_folder = "/data/czeh"
+run_name = "0002_model_large_contr_att"
+output_folder = osp.join(base_folder, f"training_data/{run_name}_stability_analysis")
+data_folder = osp.join(base_folder, "linking_dataset/dataset_hardronics_test")
+os.makedirs(output_folder, exist_ok=True)
 
 # Prepare Dataset
 batch_size = 1
-dataset = NeoGNNDataset(data_folder, hist_folder, test=True)
+dataset = NeoGNNDataset(data_folder, test=True)
 data_loader = DataLoader(dataset, shuffle=True, batch_size=batch_size)
 
 # CUDA Setup
 device = torch.device('cuda' if torch.cuda.is_available() else "cpu")
 # device = torch.device("cpu")
 print(f"Using device: {device}")
-
-# Prepare Model
-model = jit.load(osp.join(model_folder, f"{model_name}.pt"))
-model = model.to(device)
-model.eval()
 
 hm_dU_signal = GraphHeatmap(resolution=250)
 hm_dO_signal = GraphHeatmap(resolution=250)

@@ -19,7 +19,7 @@ from tracksterLinker.utils.plotResults import *
 
 # Change to False to start training new model
 load_weights = True 
-model_name = "model_2025-11-19_epoch_5_dict"
+model_name = "model_2025-10-29_epoch_30_dict"
 
 base_folder = "/data/czeh"
 load_model_folder = osp.join(base_folder, "model_results/0002_model_large_contr_att")

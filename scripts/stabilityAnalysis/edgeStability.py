@@ -33,21 +33,23 @@ def compute_and_save(graph_true, graph_pred, data, isPU, device, verbose, path, 
     return path
 
 if __name__ == "__main__":
-    model_name = "model_2025-10-08_final_loss_-0.0041_traced"
+    base_folder = "/data/czeh"
+    run_name = "0002_model_large_contr_att"
+    model_name = "model_2025-10-29_traced"
+    model_folder = osp.join(base_folder, f"model_results/{run_name}")
     model_thresh = 0.5
-    model_comp_name = "focal_loss_traced"
+
+    model_comp_name = "newGNN_focal"
+    model_comp_folder = osp.join(base_folder, f"model_results/other_models")
     model_comp_thresh = 0.5
 
-    base_folder = "/home/czeh"
-    model_folder = osp.join(base_folder, "GNN/dummy_contr")
-    output_folder = "/home/czeh/stability/dummy_test_comparison"
-    hist_folder = osp.join(base_folder, "GNN/full_PU")
-    data_folder = osp.join(base_folder, "dummy_dataset_test")
+    output_folder = osp.join(base_folder, f"training_data/{run_name}_edge_stability")
+    data_folder = osp.join(base_folder, "linking_dataset/dataset_hardronics_test")
     os.makedirs(output_folder, exist_ok=True)
 
     # Prepare Dataset
     batch_size = 1
-    dataset = NeoGNNDataset(data_folder, hist_folder, test=True)
+    dataset = NeoGNNDataset(data_folder, test=True)
     data_loader = DataLoader(dataset, shuffle=True, batch_size=batch_size)
 
     # CUDA Setup
@@ -60,7 +62,7 @@ if __name__ == "__main__":
     model = model.to(device)
     model.eval()
 
-    model_comp = jit.load(osp.join(model_folder, f"{model_comp_name}.pt"))
+    model_comp = jit.load(osp.join(model_comp_folder, f"{model_comp_name}.pt"))
     model_comp = model.to(device)
     model_comp.eval()
     i = 0
