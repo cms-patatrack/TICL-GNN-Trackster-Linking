@@ -63,15 +63,15 @@ scripts/
 
 ### Installation
 
-Clone the repository:
+If on a patatrack machine or with a python version less than `3.9.21` use either a virtual environment or use the `cmsenv` of a CMS release. If no release is checked out yet, follow the description on how to set up the inference.
 
+Clone the repository:
 ```bash
 git clone https://github.com/cms-patatrack/TICL-GNN-Trackster-Linking.git
 cd TICL-GNN-Trackster-Linking
 ```
 
 Install dependencies:
-
 ```bash
 pip install -r requirements.txt
 ```
@@ -80,6 +80,7 @@ pip install -r requirements.txt
 ### Train
 
 On the `patatrack-bg-01.cern.ch` machine the dataset for the GNN is provided. To train the GNN with contrastive learning, change the model specific data of the file `scripts/trainGNN_contrastive.py`.
+All script paths are setup to be used with the prepared data from `data/czeh` out of the box. For training change the `model_folder` to a new name and number from the temporal `9999_CHANGE_TO_NEW_MODEL`.
 
 ```python
 load_weights = True  # If pretrained model should be used for startup
@@ -93,7 +94,6 @@ data_folder_test = osp.join(base_folder, "linking_dataset/dataset_hardronics_tes
 ```
 
 Then call:
-
 ```
 python3 scripts/trainGNN_contrastive.py
 ```

@@ -105,7 +105,7 @@ trackster_poses = []
 for file in files:
     file = uproot.open(file)
 
-    allGNNtrain = load_branch_with_highest_cycle(file, 'ticlDumperGNN/GNNTraining')
+    allGNNtrain = load_branch_with_highest_cycle(file, 'ticlDumper/GNNTraining')
     allGNNtrain_array = allGNNtrain.arrays()
     print(allGNNtrain_array.fields)
 
