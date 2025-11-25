@@ -107,6 +107,36 @@ model = GNN_TrackLinkingNet(input_dim=len(dataset_training.model_feature_keys),
                             node_scaler=dataset_training.node_scaler, edge_scaler=dataset_training.edge_scaler)
 ```
 
+### Inference
+
+Run the following commands to set up a CMSSW release to run the GNN inference on.
+
+```
+cmsrel CMSSW_16_0_0_pre1
+cd CMSSW_16_0_0_pre1/src/
+cmsenv
+git cms-init
+git remote add czeh-cmssw git@github.com:chrisizeh/cmssw.git
+git fetch czeh-cmssw
+git checkout gnn-inference
+git diff --name-only $CMSSW_VERSION | cut -d/ -f-2 | sort -u | xargs -r git cms-addpkg
+scram b -j 64
+mkdir RecoHGCal/TICL/models
+cp /data/czeh/model_results/0002_model_large_contr_att/model_2025-10-29_traced.pt RecoHGCal/TICL/model/0002_model_large_contr_att.pt
+```
+
+Run this commands from the `src` folder of the CMSSW release to validate the model on 200 PU, single pion.
+```
+cp -r /data/czeh/gnn-validation/29896.203_CloseByPGun_CE_E_Front_120um+Run4D110PU_ticl_v5/ .
+cd 29896.203_CloseByPGun_CE_E_Front_120um+Run4D110PU_ticl_v5/
+cmsRun -n 4 step3_RAW2DIGI_RECO_RECOSIM_PAT_VALIDATION_DQM_PU.py
+cmsRun step4_HARVESTING.py
+mv DQM_V0001_R000000001__Global__CMSSW_X_Y_Z__RECO.root 0002_model_large_contr_att_05_08_cut_assoc.root
+makeHGCalValidationPlots.py TICL_v5.root 0002_model_large_contr_att_05_08_cut_assoc.root --collection tracksters --png --ticlv 5
+```
+
+The resulting plots can be moved to the personal website (\[username\].web.cern.ch) to check them.
+
 ## Development Notes
 
 Things unsucessfully tried:
