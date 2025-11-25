@@ -36,19 +36,18 @@ def compute_and_save(graph_true, graph_pred, data, isPU, device, verbose, path, 
 
 if __name__ == "__main__":
     mp.set_start_method("spawn", force=True)
-    model_name = "0002_model_large_contr_att"
 
-    base_folder = "/home/czeh"
-    model_folder = osp.join(base_folder, "GNN/models")
-    output_folder = osp.join(base_folder, f"GNN/{model_name}_energy_perturbations")
-    hist_folder = osp.join(base_folder, "GNN/histo")
-    data_folder = osp.join(base_folder, "GNN/dataset_hardronics_test")
-    os.makedirs(model_folder, exist_ok=True)
+    base_folder = "/data/czeh"
+    run_name = "0002_model_large_contr_att"
+    model_name = "model_2025-10-29_traced"
+    model_folder = osp.join(base_folder, f"model_results/{run_name}")
+    output_folder = osp.join(base_folder, f"training_data/{run_name}_stability_analysis")
+    data_folder = osp.join(base_folder, "linking_dataset/dataset_hardronics_test")
     os.makedirs(output_folder, exist_ok=True)
 
     # Prepare Dataset
     batch_size = 1
-    dataset = NeoGNNDataset(data_folder, hist_folder, test=True)
+    dataset = NeoGNNDataset(data_folder, test=True)
     data_loader = DataLoader(dataset, shuffle=True, batch_size=batch_size)
 
     # CUDA Setup

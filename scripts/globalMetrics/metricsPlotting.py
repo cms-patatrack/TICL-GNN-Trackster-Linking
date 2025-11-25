@@ -11,8 +11,10 @@ from tracksterLinker.datasets.NeoGNNDataset import NeoGNNDataset
 from tracksterLinker.utils.graphHeatMap import GraphHeatmap
 
 
-output_folder = "/home/czeh/newGNNMetrics"
 
+base_folder = "/data/czeh"
+run_name = "0002_model_large_contr_att"
+output_folder = osp.join(base_folder, f"training_data/{run_name}_global_metrics")
 # CUDA Setup
 device = torch.device('cuda' if torch.cuda.is_available() else "cpu")
 # device = torch.device("cpu")

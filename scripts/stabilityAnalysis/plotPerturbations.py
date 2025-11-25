@@ -21,15 +21,14 @@ MIN_PHI = -np.pi
 N_ITER = 2000
 WITH_Z = True
 
-base_folder = "/home/czeh"
-output_folder = osp.join(base_folder, "stability/perturbations")
-hist_folder = osp.join(base_folder, "_")
-data_folder_test = osp.join(base_folder, "GNN/dataset_hardronics_test")
+base_folder = "/data/czeh"
+output_folder = osp.join(base_folder, f"training_data/perturbation_plots")
+data_folder = osp.join(base_folder, "linking_dataset/dataset_hardronics_test")
 os.makedirs(output_folder, exist_ok=True)
 
 # Prepare Dataset
 batch_size = 1
-dataset_test = NeoGNNDataset(data_folder_test, hist_folder, test=True, only_signal=False)
+dataset_test = NeoGNNDataset(data_folder, test=True, only_signal=False)
 test_dl = DataLoader(dataset_test, shuffle=True, batch_size=batch_size)
 
 sample = next(iter(test_dl))
