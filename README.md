@@ -116,10 +116,7 @@ cmsrel CMSSW_16_0_X_2025-11-20-2300
 cd CMSSW_16_0_X_2025-11-20-2300/src/
 cmsenv
 git cms-init
-git remote add czeh-cmssw git@github.com:chrisizeh/cmssw.git
-git fetch czeh-cmssw
-git checkout gnn-inference
-git diff --name-only $CMSSW_VERSION | cut -d/ -f-2 | sort -u | xargs -r git cms-addpkg
+git cms-checkout-topic chrisizeh:gnn-inference
 scram b -j 64
 mkdir RecoHGCal/TICL/models
 ```
@@ -139,9 +136,20 @@ if ((post_view.score()[i] > 0.5 && post_view.max_raw_energy()[i] < 50) ||
 ```
 
 To reproduce the model results of the provided model, use `CMSSW_16_0_0_pre1` and the branch `gnn-inference-legacy`, which validate the model on 200 PU, single pion, 100 events.
+
+```
+cmsrel CMSSW_16_0_0_pre1
+cd CMSSW_16_0_0_pre1/src/
+cmsenv
+git cms-init
+git cms-checkout-topic chrisizeh:gnn-inference
+scram b -j 64
+mkdir RecoHGCal/TICL/models
+```
+
 Run this commands from the `src` folder of the CMSSW release.
 ```
-cp /data/czeh/model_results/0002_model_large_contr_att/model_2025-10-29_traced.pt RecoHGCal/TICL/model/0002_model_large_contr_att.pt
+cp /data/czeh/model_results/0002_model_large_contr_att/model_2025-10-29_traced.pt RecoHGCal/TICL/models/0002_model_large_contr_att.pt
 cp -r /data/czeh/gnn-validation/29896.203_CloseByPGun_CE_E_Front_120um+Run4D110PU_ticl_v5/ .
 cd 29896.203_CloseByPGun_CE_E_Front_120um+Run4D110PU_ticl_v5/
 cmsRun -n 4 step3_RAW2DIGI_RECO_RECOSIM_PAT_VALIDATION_DQM_PU.py
