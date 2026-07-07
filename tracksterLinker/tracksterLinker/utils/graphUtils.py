@@ -127,7 +127,7 @@ def calc_missing_energy(graph_true, graph_pred, node_values, device=torch.device
     pred_energy = torch.tensor(pred_energy)
     return (true_energy - pred_energy), true_energy
 
-def build_ticl_graph(NTrackster, trackster):
+def build_ticl_graph(NTrackster, trackster, delta=0.2):
 
     tracksterTilePos = TICLLayerTile()
     tracksterTileNeg = TICLLayerTile()
@@ -144,7 +144,6 @@ def build_ticl_graph(NTrackster, trackster):
 
     for id_t in range(NTrackster):
         tNode = Node(id_t)
-        delta = 0.1
 
         eta_min = max(abs(trackster.barycenter_eta[id_t]) - delta, TileConstants.minEta)
         eta_max = min(abs(trackster.barycenter_eta[id_t]) + delta, TileConstants.maxEta)

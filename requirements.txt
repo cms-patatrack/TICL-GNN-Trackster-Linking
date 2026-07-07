@@ -3,6 +3,7 @@ cupy-cuda12x==13.6.0
 matplotlib==3.5.3
 networkx==3.2.1
 numpy==1.25.2
+pyarrow==17.0.0
 scikit-learn==1.6.1
 scipy==1.9.3
 seaborn==0.13.2

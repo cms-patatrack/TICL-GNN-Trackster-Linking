@@ -25,7 +25,8 @@ def generate_multi_event(stats, n_events=1, random_state=None):
     for _ in range(n_events):
         signal_event, signal_y, signal_n = generate_dummy_data(stats["signal_simTrackster"].item(), random_state=random_state)
         signal_isPU = np.zeros(signal_n)
-        pu_event, pu_y, pu_n = generate_dummy_data(stats["pu_simTrackster"].item(), random_state=random_state, first_id=signal_y[-1][0])
+        first_pu_id = int(np.max(np.concatenate(signal_y))) + 1 if len(signal_y) else 0
+        pu_event, pu_y, pu_n = generate_dummy_data(stats["pu_simTrackster"].item(), random_state=random_state, first_id=first_pu_id)
 
         signal_event.extend(pu_event)
         signal_y.extend(pu_y)
@@ -34,10 +35,6 @@ def generate_multi_event(stats, n_events=1, random_state=None):
             "isPU": np.concatenate([signal_isPU, np.ones(pu_n)])
         }
 
-        event = {
-            "y": np.concatenate(signal_y),
-            "isPU": signal_isPU
-        }
         signal_event = np.concatenate(signal_event)
         for idx, name in enumerate(interest_features):
             event[name] = signal_event[:, idx]
@@ -57,6 +54,7 @@ def generate_dummy_data(stats, random_state=None, first_id=0):
     all_tracksters = []
     all_y = []
     nTrackster = 0
+    sim_trackster_id = first_id
     for clu in range(stats["poses_mean"].shape[0]):
         # centroid of cluster
         mean = stats["poses_mean"][clu]
@@ -76,7 +74,7 @@ def generate_dummy_data(stats, random_state=None, first_id=0):
         # generate simTracksters in this cluster
         cluster_points = rng.multivariate_normal(centroid, cov, size=n_points)
 
-        for sim_idx, cluster in enumerate(cluster_points):
+        for _, cluster in enumerate(cluster_points):
             new_pos = cluster + stats["trackster_rel_poses_mean"][clu, :]
             trackster_count = max(1, int(rng.normal(stats["trackster_count_mean"], stats["trackster_count_std"])))
             tracksters = rng.normal(new_pos, stats["trackster_rel_poses_std"][clu, :], size=(trackster_count, new_pos.shape[0]))
@@ -90,7 +88,8 @@ def generate_dummy_data(stats, random_state=None, first_id=0):
 
             nTrackster += tracksters.shape[0]
             all_tracksters.append(tracksters)
-            all_y.append(np.full(tracksters.shape[0], (sim_idx+first_id)))
+            all_y.append(np.full(tracksters.shape[0], sim_trackster_id))
+            sim_trackster_id += 1
 
     return all_tracksters, all_y, nTrackster
 
@@ -123,6 +122,7 @@ if __name__ == '__main__':
     os.makedirs(data_folder, exist_ok=True)
     os.makedirs(osp.join(data_folder, "train"), exist_ok=True)
     os.makedirs(osp.join(data_folder, "test"), exist_ok=True)
+    os.makedirs(osp.join(data_folder, "val"), exist_ok=True)
 
     n_events = 10
     n_files_train = 1000

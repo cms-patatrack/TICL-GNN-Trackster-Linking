@@ -52,6 +52,7 @@ scripts/
 ├── compareGNNDatasets.py       # Compare GNNDataset and NeoGNNDataset build with same hiso.root to check for correct postprocessing
 ├── createClusterDataset.py     # Create Transformer dataset based on GNNDataset
 ├── createGNNDataset.py         # Create GNN dataset based on histo.root. Run before training, if no dataset!
+├── run_dummy_reco_experiment.py # Generate public HGCAL-like dummy data and compare focal vs contrastive reconstruction
 ├── testSplitPU.py              # Analyze changes in graph structure
 ├── trainGNN.py                 # Train GNN with focal loss
 ├── trainGNN_contrastive.py     # Train GNN with multi objective loss function, focal+contrastive
@@ -106,6 +107,16 @@ model = GNN_TrackLinkingNet(input_dim=len(dataset_training.model_feature_keys),
                             edge_hidden_dim=32, hidden_dim=64, weighted_aggr=True, dropout=0.3,
                             node_scaler=dataset_training.node_scaler, edge_scaler=dataset_training.edge_scaler)
 ```
+
+### Dummy Reconstruction Experiment
+
+When CMS data cannot be used, a public HGCAL-like dummy setup is available for comparing focal-only training against focal+contrastive training on the same synthetic train/validation/test split. It reports both edge metrics and reconstructed supertrackster metrics:
+
+```bash
+python scripts/run_dummy_reco_experiment.py --work-dir outputs/dummy_reco_experiment --generate-data --scenario mixed --epochs 30
+```
+
+See [`docs/dummy_reco_experiment.md`](docs/dummy_reco_experiment.md) for the thesis-aligned setup and poster-ready metric definitions.
 
 ### Inference
 

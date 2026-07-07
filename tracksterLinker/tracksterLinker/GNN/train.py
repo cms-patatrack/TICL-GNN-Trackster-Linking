@@ -1,6 +1,5 @@
 from tqdm import tqdm
 import numpy as np
-import random
 
 import torch
 
@@ -30,15 +29,25 @@ def train(model, opt, loader, epoch, weighted="raw_energy", scores=False, emb_ou
 
         # compute the loss
         if scores:
-            label = torch.full((sample.edge_index.shape[0], ), random.getrandbits(1), device=sample.x.device)
-            if label[0] == 0:
-                dupl = perturbate(sample.x, num_samples=1, with_z=True)
-                emb_dupl, _ = model.run(dupl.squeeze(0), sample.edge_features, sample.edge_index)
-            else:
-                indices = torch.randperm(sample.edge_index.shape[0])
-                emb_dupl = emb[indices]
+            dupl = perturbate(sample.x, num_samples=1, with_z=True, device=sample.x.device)
+            emb_pos, _ = model.run(dupl.squeeze(0), sample.edge_features, sample.edge_index)
 
-            loss = loss_obj(z.squeeze(-1), emb.squeeze(-1), emb_dupl.squeeze(-1), sample.y, label, weights)
+            indices = torch.randperm(sample.edge_index.shape[0], device=sample.x.device)
+            if sample.edge_index.shape[0] > 1 and torch.equal(indices, torch.arange(sample.edge_index.shape[0], device=sample.x.device)):
+                indices = torch.roll(indices, shifts=1)
+            emb_neg = emb[indices]
+
+            contrastive_left = torch.cat([emb, emb], dim=0)
+            contrastive_right = torch.cat([emb_pos, emb_neg], dim=0)
+            contrastive_label = torch.cat(
+                [
+                    torch.zeros(sample.edge_index.shape[0], device=sample.x.device),
+                    torch.ones(sample.edge_index.shape[0], device=sample.x.device),
+                ],
+                dim=0,
+            )
+
+            loss = loss_obj(z.squeeze(-1), contrastive_left, contrastive_right, sample.y, contrastive_label, weights)
         else:
             loss = loss_obj(z.squeeze(-1), torch.ceil(sample.y), weights)
 

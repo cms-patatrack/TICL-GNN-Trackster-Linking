@@ -1,4 +1,5 @@
 import os.path as osp
+import os
 from glob import glob
 
 import awkward as ak
@@ -80,6 +81,7 @@ def process_event(idx, event, model_feature_keys, node_feature_dict, processed_d
         edge_index=torch.as_tensor(edges, device=device).long(),
         edge_features=torch.as_tensor(edge_features, device=device).float(),
         y=torch.as_tensor(y, device=device).float(),
+        cluster=torch.as_tensor(e_y, device=device).long(),
         isPU=torch.as_tensor(isPU, device=device).int(),
         PU_info=torch.as_tensor(PU_info, device=device).bool())
 
@@ -97,8 +99,9 @@ class DummyDataset(Dataset):
 
     # Skeleton Features computional intensive -> Turn off if not needed
     def __init__(self, root, histo_path, transform=None, test=False, skeleton_features=False, pre_transform=None, pre_filter=None, edge_scaler=None, node_scaler=None,
-                 num_workers=24, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
-        self.test = test
+                 num_workers=24, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'), split=None):
+        self.split = split or ("test" if test else "train")
+        self.test = test if split is None else self.split != "train"
         self.skeleton_features = skeleton_features
         self.device = device
         self.num_workers = num_workers
@@ -126,10 +129,7 @@ class DummyDataset(Dataset):
         return glob(f"{self.processed_dir}/data_*.pt")
 
     def download(self):
-        if (self.test):
-            files = glob(f"{self.histo_path}/test/*.parquet")
-        else:
-            files = glob(f"{self.histo_path}/train/*.parquet")
+        files = glob(f"{self.histo_path}/{self.split}/*.parquet")
         print(files)
 
         with tqdm(total=len(files)) as pbar:
