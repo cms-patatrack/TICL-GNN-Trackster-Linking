@@ -3,7 +3,7 @@
 * Graph Neural Network for trackster linking, including scripts for training and dataset creation. 
 * Transformer architecture for cluster creation based on token learning. Preliminary, without great training success. Attention architecture included in GNN, would not investigate further.
 * Stability Analysis of graph models
-* Dummy Data creation based on statistical analysis of trackster dataset
+* Dummy HGCAL-like event creation based on statistical analysis of trackster datasets
 
 ![Python version](https://img.shields.io/badge/python-3.9.21-blue.svg)
 ![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)
@@ -38,9 +38,9 @@ tracksterLinker/
 
 ```text
 scripts/
-├── dummyDataGeneration/        # Data analysis and dummy data generation
+├── dummyDataGeneration/        # Data analysis and dummy event generation
     ├── dataStatistics.py       # Analyse defined dataset and create gaussian mixture clusters based on trackster positions
-    ├── dummyGenerations.py     # Generate dummy data based on stored statistics
+    ├── dummyGenerations.py     # Generate dummy events based on stored statistics
 ├── globalMetrics/              # Calculate per event metrics of energy merging 
     ├── metricsCreation.py      # Store metrics for signal and pu separately
     ├── metricsPlotting.py      # Plot GraphHeatmap based on stored metrics
@@ -52,7 +52,7 @@ scripts/
 ├── compareGNNDatasets.py       # Compare GNNDataset and NeoGNNDataset build with same hiso.root to check for correct postprocessing
 ├── createClusterDataset.py     # Create Transformer dataset based on GNNDataset
 ├── createGNNDataset.py         # Create GNN dataset based on histo.root. Run before training, if no dataset!
-├── run_dummy_reco_experiment.py # Generate public HGCAL-like dummy data and compare focal vs contrastive reconstruction
+├── run_dummy_reco_experiment.py # Generate public HGCAL-like dummy events and compare focal vs contrastive reconstruction
 ├── testSplitPU.py              # Analyze changes in graph structure
 ├── trainGNN.py                 # Train GNN with focal loss
 ├── trainGNN_contrastive.py     # Train GNN with multi objective loss function, focal+contrastive
@@ -110,11 +110,15 @@ model = GNN_TrackLinkingNet(input_dim=len(dataset_training.model_feature_keys),
 
 ### Dummy Reconstruction Experiment
 
-When CMS data cannot be used, a public HGCAL-like dummy setup is available for comparing focal-only training against focal+contrastive training on the same synthetic train/validation/test split. It reports both edge metrics and reconstructed supertrackster metrics:
+When CMS data cannot be used, the experiment uses public HGCAL-like dummy events to compare focal-only training against focal+contrastive training on the same train/validation/test split. It uses the repository GNN training, checkpointing, and validation plotting utilities, and reports both edge metrics and reconstructed supertrackster metrics.
 
 ```bash
-python scripts/run_dummy_reco_experiment.py --work-dir outputs/dummy_reco_experiment --generate-data --scenario mixed --epochs 30
+python scripts/run_dummy_reco_experiment.py \
+  --generate-data \
+  --epochs 30
 ```
+
+By default the script follows the same subfolder style as `trainGNN.py`, but roots all dummy artifacts in `../data`: model outputs in `../data/training_data/dummy_reco_experiment`, and raw/processed datasets in `../data/linking_dataset/dummy_reco_experiment`. The dummy events are fixed to a crowded multiparticle topology with about 200 overlapping PU showers.
 
 See [`docs/dummy_reco_experiment.md`](docs/dummy_reco_experiment.md) for the thesis-aligned setup and poster-ready metric definitions.
 

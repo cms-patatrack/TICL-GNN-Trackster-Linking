@@ -11,6 +11,10 @@ import os.path as osp
 
 import awkward as ak
 
+REPO_ROOT = osp.abspath(osp.join(osp.dirname(__file__), "..", ".."))
+base_folder = osp.abspath(osp.join(REPO_ROOT, "..", "data", "linking_dataset"))
+image_folder = osp.join(base_folder, "dummy_data", "images")
+
 # interest_features = ["barycenter_x", "barycenter_y", "barycenter_z", "barycenter_eta", "barycenter_phi", "eVector0_x", "eVector0_y", "eVector0_z", "num_LCs", "raw_energy", "z_min", "z_max", "LC_density"]
 
 interest_features = ["barycenter_x", "barycenter_y", "barycenter_z", "barycenter_eta", "barycenter_phi", "eVector0_x", "eVector0_y", "eVector0_z", "EV1", "EV2", "EV3",
@@ -111,11 +115,11 @@ def plot_event_3d(events):
         ax.set_xlabel("x")
         ax.set_ylabel("y")
         ax.set_zlabel("z")
-        plt.savefig(f"/home/czeh/dummy_data/images/data_{i}.png")
+        os.makedirs(image_folder, exist_ok=True)
+        plt.savefig(osp.join(image_folder, f"data_{i}.png"))
 
 
 if __name__ == '__main__':
-    base_folder = "/data/czeh/linking_dataset"
     in_folder = osp.join(base_folder, "dummy_data/data_stats")
     data_folder = osp.join(base_folder, "dummy_data/data")
     data = np.load(osp.join(in_folder, "simTrackster.npz"), allow_pickle=True)

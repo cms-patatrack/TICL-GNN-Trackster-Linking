@@ -28,6 +28,16 @@ POSTER_GRAY = "#F4F6F8"
 TEXT_COLOR = "#1F2933"
 
 
+# Dummy outputs default to ../data while keeping the existing training_data/linking_dataset layout.
+base_folder = osp.abspath(osp.join(REPO_ROOT, "..", "data"))
+run_name = "dummy_reco_experiment"
+model_folder = osp.join(base_folder, "training_data", run_name)
+data_folder = osp.join(base_folder, "linking_dataset", run_name)
+raw_data_folder = osp.join(data_folder, "histo")
+data_folder_test = osp.join(data_folder, "dataset_dummy_reco_test")
+output_folder = osp.join(base_folder, "training_data", f"{run_name}_edge_stability")
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description=(
@@ -36,9 +46,19 @@ def parse_args():
             "under the same transverse PCA perturbations."
         )
     )
-    parser.add_argument("--work-dir", default="outputs/dummy_reco_experiment")
+    parser.add_argument("--base-folder", default=base_folder, help="Root folder for dummy data and outputs. Default: ../data.")
+    parser.add_argument("--run-name", default=run_name)
+    parser.add_argument("--model-folder", "--work-dir", dest="model_folder", default=None, help="Override model/checkpoint folder.")
+    parser.add_argument(
+        "--data-folder",
+        "--data-dir",
+        dest="data_folder",
+        default=None,
+        help="Override dataset root.",
+    )
     parser.add_argument("--raw-data-dir", default=None)
-    parser.add_argument("--output-dir", default=osp.join("LogML_GNN_Poster", "images"))
+    parser.add_argument("--processed-data-dir", default=None)
+    parser.add_argument("--output-dir", default=None, help="Override plot output folder. Default: <base-folder>/training_data/<run-name>_edge_stability.")
     parser.add_argument("--focal-checkpoint", default=None)
     parser.add_argument("--contrastive-checkpoint", default=None)
     parser.add_argument("--num-graphs", type=int, default=100)
@@ -50,11 +70,47 @@ def parse_args():
     return parser.parse_args()
 
 
+def dummy_data_paths(args):
+    use_script_paths = args.base_folder == base_folder and args.run_name == run_name
+    default_model_folder = model_folder if use_script_paths else osp.join(args.base_folder, "training_data", args.run_name)
+    default_data_folder = data_folder if use_script_paths else osp.join(args.base_folder, "linking_dataset", args.run_name)
+    selected_model_folder = args.model_folder or default_model_folder
+    selected_data_folder = args.data_folder or default_data_folder
+    raw_data_dir = args.raw_data_dir or (raw_data_folder if use_script_paths and args.data_folder is None else osp.join(selected_data_folder, "histo"))
+    test_folder = (
+        osp.join(args.processed_data_dir, "dataset_dummy_reco_test")
+        if args.processed_data_dir is not None
+        else data_folder_test if use_script_paths and args.data_folder is None
+        else osp.join(selected_data_folder, "dataset_dummy_reco_test")
+    )
+    return {
+        "model": selected_model_folder,
+        "stability": args.output_dir or (output_folder if use_script_paths else osp.join(args.base_folder, "training_data", f"{args.run_name}_edge_stability")),
+        "data": selected_data_folder,
+        "raw": raw_data_dir,
+        "test": test_folder,
+    }
+
+
+def read_json(path):
+    if not osp.isfile(path):
+        return {}
+    with open(path, "r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
 def newest_checkpoint(folder, model_name):
-    candidates = sorted(glob(osp.join(folder, model_name, "*.pt")), key=osp.getmtime)
+    model_dir = osp.join(folder, model_name)
+    candidates = sorted(glob(osp.join(model_dir, "*_dict.pt")), key=osp.getmtime)
+    if not candidates:
+        candidates = [
+            path
+            for path in sorted(glob(osp.join(model_dir, "*.pt")), key=osp.getmtime)
+            if not path.endswith("_traced.pt") and not path.endswith("_diff_traced.pt")
+        ]
     if not candidates:
         raise FileNotFoundError(
-            f"No checkpoint found under {osp.join(folder, model_name)}. "
+            f"No checkpoint found under {model_dir}. "
             "Run scripts/run_dummy_reco_experiment.py first or pass an explicit checkpoint path."
         )
     return candidates[-1]
@@ -78,11 +134,16 @@ def build_model(architecture, input_dim, edge_dim, device):
     raise ValueError(f"Unsupported architecture in checkpoint: {architecture}")
 
 
-def load_model(checkpoint_path, sample, input_dim, device):
+def load_model(checkpoint_path, sample, input_dim, device, args):
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
-    model = build_model(checkpoint.get("architecture", "gnn"), input_dim, sample.edge_features.shape[1], device)
+    metadata = read_json(osp.join(osp.dirname(checkpoint_path), "metadata.json"))
+    paths = dummy_data_paths(args)
+    config = read_json(osp.join(paths["model"], "config.json"))
+    architecture = checkpoint.get("architecture") or metadata.get("architecture") or config.get("architecture", "gnn")
+    model = build_model(architecture, input_dim, sample.edge_features.shape[1], device)
     model.load_state_dict(checkpoint["model_state_dict"])
-    model.threshold = float(checkpoint.get("threshold", 0.5))
+    threshold = checkpoint.get("threshold", metadata.get("threshold", model.threshold))
+    model.threshold = float(threshold)
     model.eval()
     return model, checkpoint
 
@@ -90,8 +151,9 @@ def load_model(checkpoint_path, sample, input_dim, device):
 def load_test_dataset(args):
     from tracksterLinker.datasets.DummyDataset import DummyDataset
 
-    raw_data_dir = args.raw_data_dir or osp.join(args.work_dir, "parquet")
-    processed_root = osp.join(args.work_dir, "processed", "test")
+    paths = dummy_data_paths(args)
+    raw_data_dir = paths["raw"]
+    processed_root = paths["test"]
     if not osp.isdir(raw_data_dir) and not osp.isdir(processed_root):
         raise FileNotFoundError(
             f"Could not find dummy data in {raw_data_dir} or processed data in {processed_root}. "
@@ -299,7 +361,8 @@ def plot_gain_heatmap(records, key, title, output_path, bins):
 
 def write_summary(records, output_path, args, focal_checkpoint, contrastive_checkpoint):
     summary = {
-        "work_dir": args.work_dir,
+        "model_folder": dummy_data_paths(args)["model"],
+        "data_dir": dummy_data_paths(args)["data"],
         "focal_checkpoint": focal_checkpoint,
         "contrastive_checkpoint": contrastive_checkpoint,
         "num_graphs_requested": args.num_graphs,
@@ -325,16 +388,17 @@ def write_summary(records, output_path, args, focal_checkpoint, contrastive_chec
 def main():
     args = parse_args()
     device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
-    os.makedirs(args.output_dir, exist_ok=True)
+    paths = dummy_data_paths(args)
+    os.makedirs(paths["stability"], exist_ok=True)
 
-    focal_checkpoint = args.focal_checkpoint or newest_checkpoint(args.work_dir, "focal")
-    contrastive_checkpoint = args.contrastive_checkpoint or newest_checkpoint(args.work_dir, "focal_contrastive")
+    focal_checkpoint = args.focal_checkpoint or newest_checkpoint(paths["model"], "focal")
+    contrastive_checkpoint = args.contrastive_checkpoint or newest_checkpoint(paths["model"], "focal_contrastive")
 
     dataset, dataset_cls = load_test_dataset(args)
     sample = dataset[0]
     input_dim = len(dataset_cls.model_feature_keys)
-    focal_model, _ = load_model(focal_checkpoint, sample, input_dim, device)
-    contrastive_model, _ = load_model(contrastive_checkpoint, sample, input_dim, device)
+    focal_model, _ = load_model(focal_checkpoint, sample, input_dim, device, args)
+    contrastive_model, _ = load_model(contrastive_checkpoint, sample, input_dim, device, args)
 
     print(f"Using device: {device}")
     print(f"Focal checkpoint: {focal_checkpoint}")
@@ -345,24 +409,24 @@ def main():
         records,
         "all",
         "All candidate edges: contrastive stability gain",
-        osp.join(args.output_dir, "all_edge_stab.png"),
+        osp.join(paths["stability"], "all_edge_stab.png"),
         args.bins,
     )
     plot_gain_heatmap(
         records,
         "signal",
         "Signal-only edges: contrastive stability gain",
-        osp.join(args.output_dir, "signal_edge_stab.png"),
+        osp.join(paths["stability"], "signal_edge_stab.png"),
         args.bins,
     )
     write_summary(
         records,
-        osp.join(args.output_dir, "dummy_edge_stability_summary.json"),
+        osp.join(paths["stability"], "dummy_edge_stability_summary.json"),
         args,
         focal_checkpoint,
         contrastive_checkpoint,
     )
-    print(f"Saved stability plots to {args.output_dir}")
+    print(f"Saved stability plots to {paths['stability']}")
 
 
 if __name__ == "__main__":

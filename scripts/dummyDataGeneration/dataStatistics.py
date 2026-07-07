@@ -9,6 +9,8 @@ import tracksterLinker
 from tracksterLinker.utils.graphUtils import *
 from tracksterLinker.datasets.NeoGNNDataset import *
 
+REPO_ROOT = osp.abspath(osp.join(osp.dirname(__file__), "..", ".."))
+
 
 def statistics_of_gaussians(centers, covariances, poses, rel_poses, counts, cluster=10):
     kmeans = KMeans(n_clusters=cluster, random_state=0).fit(centers)
@@ -73,7 +75,7 @@ def statistics_of_gaussians(centers, covariances, poses, rel_poses, counts, clus
     return cluster_center_means, cluster_center_stds, cluster_cov_means, cluster_cov_stds, trackster_rel_poses_mean, trackster_rel_poses_std, trackster_counts_mean, trackster_counts_std
 
 
-base_folder = "/data/czeh/linking_dataset/"
+base_folder = osp.abspath(osp.join(REPO_ROOT, "..", "data", "linking_dataset"))
 hist_folder = osp.join(base_folder, "histo")
 output_folder = osp.join(base_folder, "dummy_data/data_stats")
 os.makedirs(output_folder, exist_ok=True)

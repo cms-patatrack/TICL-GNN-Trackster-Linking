@@ -14,6 +14,48 @@ import seaborn as sn
 """Testing of the trained models."""
 
 
+def plot_training_comparison(histories, output_dir, filename="loss_comparison.png", title="Training comparison"):
+    fig, ax = plt.subplots(figsize=(8, 5))
+    for name, history in histories.items():
+        ax.plot(history["train_loss"], label=f"{name} train")
+        ax.plot(history["val_loss"], label=f"{name} val")
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Loss")
+    ax.set_title(title)
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(os.path.join(output_dir, filename), dpi=180)
+    plt.close(fig)
+
+
+def plot_metric_bars(metrics, output_dir, filename="reconstruction_metric_bars.png", title="Held-out reconstruction metrics"):
+    keys = [
+        "edge_f1",
+        "b3_f1",
+        "containment_efficiency_40",
+        "association_iou_efficiency",
+        "fake_rate",
+        "duplicate_rate",
+        "merge_rate",
+        "mean_best_iou",
+    ]
+    names = list(metrics.keys())
+    x = np.arange(len(keys))
+    width = 0.8 / max(1, len(names))
+    fig, ax = plt.subplots(figsize=(11, 5))
+    for idx, name in enumerate(names):
+        values = [metrics[name].get(key, np.nan) for key in keys]
+        ax.bar(x + idx * width, values, width=width, label=name)
+    ax.set_xticks(x + width * (len(names) - 1) / 2)
+    ax.set_xticklabels(keys, rotation=35, ha="right")
+    ax.set_ylim(0, 1.05)
+    ax.set_title(title)
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(os.path.join(output_dir, filename), dpi=180)
+    plt.close(fig)
+
+
 # statistical analysis of prediction results
 def classification_threshold_scores(scores, ground_truth, ax=None, threshold_step=0.05, plot=True, save=False, output_folder=None, filename=None, weight=None):
     """

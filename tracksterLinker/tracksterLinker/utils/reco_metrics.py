@@ -1,3 +1,6 @@
+import csv
+import os.path as osp
+
 import torch
 import awkward as ak
 import numpy as np
@@ -406,6 +409,30 @@ def evaluate_model_reconstruction(model, loader, node_feature_dict, threshold=No
     return evaluate_components_loader(loader, model_components, node_feature_dict, selection=selection)
 
 
+def edge_classification_metrics(scores, labels, weights, threshold):
+    scores = scores.detach().cpu().float().reshape(-1)
+    labels = (labels.detach().cpu().float().reshape(-1) > 0)
+    weights = weights.detach().cpu().float().reshape(-1).clamp_min(0)
+    pred = scores >= threshold
+    tp = weights[pred & labels].sum()
+    fp = weights[pred & ~labels].sum()
+    fn = weights[~pred & labels].sum()
+    tn = weights[~pred & ~labels].sum()
+    precision = tp / (tp + fp).clamp_min(1e-12)
+    recall = tp / (tp + fn).clamp_min(1e-12)
+    specificity = tn / (tn + fp).clamp_min(1e-12)
+    f1 = 2 * precision * recall / (precision + recall).clamp_min(1e-12)
+    accuracy = (tp + tn) / (tp + fp + fn + tn).clamp_min(1e-12)
+    return {
+        "edge_accuracy": float(accuracy.item()),
+        "edge_precision": float(precision.item()),
+        "edge_recall": float(recall.item()),
+        "edge_specificity": float(specificity.item()),
+        "edge_f1": float(f1.item()),
+        "threshold": float(threshold),
+    }
+
+
 def find_best_edge_threshold(scores, labels, weights=None, thresholds=None, beta=1.0):
     scores = scores.detach().cpu().float().reshape(-1)
     labels = (labels.detach().cpu().float().reshape(-1) > 0).float()
@@ -432,3 +459,14 @@ def find_best_edge_threshold(scores, labels, weights=None, thresholds=None, beta
             best_f = float(f_score.item())
             best_threshold = float(threshold.item())
     return best_threshold, best_f
+
+
+def write_metric_csv(metrics, output_dir, filename="metrics.csv"):
+    rows = []
+    for model_name, values in metrics.items():
+        for key, value in sorted(values.items()):
+            rows.append({"model": model_name, "metric": key, "value": value})
+    with open(osp.join(output_dir, filename), "w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["model", "metric", "value"])
+        writer.writeheader()
+        writer.writerows(rows)

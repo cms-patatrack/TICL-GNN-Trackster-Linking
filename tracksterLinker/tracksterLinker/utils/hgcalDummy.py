@@ -48,14 +48,13 @@ HGCAL_Z_MAX_CM = 520.0
 
 @dataclass
 class HGCALLikeDummyConfig:
-    scenario: str = "mixed"
     train_files: int = 80
     val_files: int = 20
     test_files: int = 20
     events_per_file: int = 10
-    signal_mean: float = 12.0
-    pu_mean: float = 35.0
-    close_pair_fraction: float = 0.35
+    signal_mean: float = 30.0
+    pu_mean: float = 200.0
+    close_pair_fraction: float = 0.85
     seed: int = 12345
 
 
@@ -105,13 +104,12 @@ def _particle_probabilities(pdg_id, rng):
     return noisy / noisy.sum()
 
 
-def _sample_signal_pdg(rng):
-    # Matches the pion-heavy SingleParticle140PU mix described in the thesis.
-    return int(rng.choice([211, 22, 11, -11, 15, 130, 321, -321], p=[0.80, 0.05, 0.025, 0.025, 0.05, 0.02, 0.015, 0.015]))
-
-
 def _sample_multiparticle_pdg(rng):
-    return int(rng.choice([22, 11, -11, 211, 130, 321, -321]))
+    return int(rng.choice([22, 11, -11, 111, 211, -211, 130, 2112, 321, -321], p=[0.16, 0.06, 0.06, 0.10, 0.34, 0.10, 0.08, 0.05, 0.025, 0.025]))
+
+
+def _sample_pu_pdg(rng):
+    return int(rng.choice([22, 111, 211, -211, 130, 2112, 321, -321], p=[0.18, 0.12, 0.34, 0.16, 0.09, 0.06, 0.025, 0.025]))
 
 
 def _sample_axis(rng, z_sign=None, eta_range=(1.5, 3.0)):
@@ -126,36 +124,59 @@ def _sample_axis(rng, z_sign=None, eta_range=(1.5, 3.0)):
     }
 
 
-def _near_axis(axis, rng, eta_sigma=0.025, phi_sigma=0.025):
+def _decorate_axis(axis, rng, is_pu=False, crowding=1.0):
+    axis = dict(axis)
+    drift_scale = (0.018 if is_pu else 0.030) * crowding
+    axis["eta_drift"] = float(rng.normal(0.0, drift_scale))
+    axis["phi_drift"] = float(rng.normal(0.0, drift_scale))
+    axis["scatter_scale"] = float(rng.lognormal(mean=0.0 if not is_pu else 0.18, sigma=0.32))
+    axis["core_jitter"] = float(rng.uniform(0.001, 0.012 if not is_pu else 0.020))
+    axis["time0"] = float(rng.normal(0.0, 0.035 if not is_pu else 0.22))
+    return axis
+
+
+def _near_axis(axis, rng, eta_sigma=0.025, phi_sigma=0.025, is_pu=False, crowding=1.0):
     eta_abs = np.clip(abs(axis["eta"]) + rng.normal(0.0, eta_sigma), 1.5, 3.0)
-    return {
+    near = {
         "eta": axis["z_sign"] * eta_abs,
         "eta_abs": eta_abs,
         "phi": float(_wrap_phi(axis["phi"] + rng.normal(0.0, phi_sigma))),
         "z_sign": axis["z_sign"],
     }
+    return _decorate_axis(near, rng, is_pu=is_pu, crowding=crowding)
 
 
-def _sample_energy(rng, axis, use_pt=False):
-    if use_pt:
-        pt = rng.uniform(10.0, 100.0)
-        return float(np.clip(pt * math.cosh(axis["eta_abs"]), 10.0, 600.0))
-    return float(rng.uniform(10.0, 600.0))
+def _sample_energy(rng, axis, is_pu=False):
+    if is_pu:
+        # PU is numerous and mostly soft, but the high-eta cosh factor still creates
+        # occasional energetic contaminants in the same HGCAL volume.
+        pt = rng.gamma(shape=1.6, scale=2.2)
+        if rng.random() < 0.05:
+            pt += rng.exponential(12.0)
+        return float(np.clip(pt * math.cosh(axis["eta_abs"]), 0.4, 180.0))
+
+    if rng.random() < 0.35:
+        pt = rng.uniform(20.0, 120.0)
+        return float(np.clip(pt * math.cosh(axis["eta_abs"]), 20.0, 800.0))
+    return float(np.clip(rng.lognormal(mean=4.6, sigma=0.75), 8.0, 800.0))
 
 
 def _fragment_count(rng, energy, pdg_id, is_pu):
     abs_pdg = abs(int(pdg_id))
     if abs_pdg in {22, 11}:
-        mean = 1.8 + 0.010 * energy
-    elif abs_pdg in {211, 130, 321, 15}:
-        mean = 3.5 + 0.018 * energy
+        mean = 1.4 + 0.007 * energy
+    elif abs_pdg in {211, 130, 321, 2112, 15}:
+        mean = 3.0 + 0.014 * energy
     else:
-        mean = 2.0 + 0.012 * energy
+        mean = 2.0 + 0.010 * energy
 
     if is_pu:
-        mean *= 0.45
+        mean = 0.8 + 0.35 * mean
 
-    return int(np.clip(1 + rng.poisson(mean), 1, 24))
+    if rng.random() < (0.10 if is_pu else 0.18):
+        mean *= rng.uniform(1.4, 2.4)
+
+    return int(np.clip(1 + rng.poisson(mean), 1, 18 if is_pu else 32))
 
 
 def _energy_fractions(rng, n_fragments, pdg_id):
@@ -176,13 +197,22 @@ def _energy_fractions(rng, n_fragments, pdg_id):
 def _shower_depths(rng, n_fragments, pdg_id):
     abs_pdg = abs(int(pdg_id))
     if abs_pdg in {22, 11}:
-        z_stop = rng.uniform(365.0, 430.0)
+        z_stop = rng.uniform(360.0, 430.0)
+        z_start = rng.uniform(HGCAL_Z_MIN_CM, 345.0)
     else:
-        z_stop = rng.uniform(445.0, HGCAL_Z_MAX_CM)
+        z_stop = rng.uniform(430.0, HGCAL_Z_MAX_CM)
+        z_start = rng.uniform(HGCAL_Z_MIN_CM, 375.0)
 
-    z_start = rng.uniform(HGCAL_Z_MIN_CM, 345.0)
-    depths = np.linspace(z_start, z_stop, n_fragments)
-    depths += rng.normal(0.0, 5.0, size=n_fragments)
+    if abs_pdg in {211, 130, 321, 2112, 15} and n_fragments > 3 and rng.random() < 0.35:
+        split = int(rng.integers(1, n_fragments))
+        early = rng.uniform(z_start, min(z_stop, z_start + 85.0), size=split)
+        late = rng.uniform(max(z_start, z_stop - 85.0), z_stop, size=n_fragments - split)
+        depths = np.concatenate([early, late])
+    else:
+        quantiles = np.sort(rng.beta(1.3, 1.4, size=n_fragments))
+        depths = z_start + quantiles * (z_stop - z_start)
+
+    depths += rng.normal(0.0, 7.5 if abs_pdg in {22, 11} else 12.0, size=n_fragments)
     return np.sort(np.clip(depths, HGCAL_Z_MIN_CM, HGCAL_Z_MAX_CM))
 
 
@@ -196,25 +226,41 @@ def _make_tracksters_for_shower(rng, axis, energy, pdg_id, sim_id, is_pu):
     pu_flags = []
 
     abs_pdg = abs(int(pdg_id))
-    angular_spread = 0.006 if abs_pdg in {22, 11} else 0.014
-    time0 = rng.normal(0.0, 0.035 if not is_pu else 0.18)
+    angular_spread = 0.005 if abs_pdg in {22, 11} else 0.018
+    time0 = axis.get("time0", rng.normal(0.0, 0.035 if not is_pu else 0.22))
+    scatter_scale = axis.get("scatter_scale", 1.0)
+    core_jitter = axis.get("core_jitter", 0.004)
+    branch_eta = rng.normal(0.0, angular_spread * scatter_scale)
+    branch_phi = rng.normal(0.0, angular_spread * scatter_scale)
 
     for idx, (z_abs, frac) in enumerate(zip(depths, fractions)):
-        eta = axis["eta"] + axis["z_sign"] * rng.normal(0.0, angular_spread)
+        depth_frac = (z_abs - HGCAL_Z_MIN_CM) / (HGCAL_Z_MAX_CM - HGCAL_Z_MIN_CM)
+        width_growth = 0.7 + 1.8 * depth_frac
+        tail = rng.standard_t(df=3) if rng.random() < 0.22 else rng.normal()
+        local_eta_spread = angular_spread * scatter_scale * width_growth
+        local_phi_spread = angular_spread * scatter_scale * width_growth
+        if abs_pdg not in {22, 11} and rng.random() < 0.30:
+            local_eta_spread *= rng.uniform(1.4, 3.0)
+            local_phi_spread *= rng.uniform(1.4, 3.0)
+
+        eta_center = axis["eta"] + axis["z_sign"] * axis.get("eta_drift", 0.0) * depth_frac + branch_eta * depth_frac
+        phi_center = _wrap_phi(axis["phi"] + axis.get("phi_drift", 0.0) * depth_frac + branch_phi * depth_frac)
+
+        eta = eta_center + axis["z_sign"] * (rng.normal(0.0, core_jitter) + tail * local_eta_spread)
         eta_abs = np.clip(abs(eta), 1.5, 3.0)
         eta = axis["z_sign"] * eta_abs
-        phi = float(_wrap_phi(axis["phi"] + rng.normal(0.0, angular_spread)))
+        phi = float(_wrap_phi(phi_center + rng.normal(0.0, core_jitter) + rng.normal(0.0, local_phi_spread)))
         position = _eta_phi_z_to_xyz(eta, phi, z_abs, axis["z_sign"])
 
-        direction = _normalised(position + rng.normal(0.0, 3.0, size=3))
-        raw_energy = max(0.05, energy * frac * rng.lognormal(mean=0.0, sigma=0.08))
-        em_fraction = 0.85 if abs_pdg in {22, 11} else rng.uniform(0.15, 0.55)
+        direction = _normalised(position + rng.normal(0.0, 5.0 if not is_pu else 8.0, size=3))
+        raw_energy = max(0.02, energy * frac * rng.lognormal(mean=0.0, sigma=0.18 if not is_pu else 0.35))
+        em_fraction = rng.uniform(0.72, 0.95) if abs_pdg in {22, 11} else rng.beta(1.8, 3.6)
         raw_em_energy = raw_energy * em_fraction
 
-        num_lcs = int(max(2, rng.poisson(2.5 + 1.6 * math.sqrt(raw_energy))))
+        num_lcs = int(max(1 if is_pu else 2, rng.poisson(1.6 + 1.35 * math.sqrt(raw_energy))))
         num_hits = int(max(num_lcs, rng.poisson(num_lcs * rng.uniform(2.0, 5.5))))
-        local_length = rng.uniform(3.0, 18.0 if abs_pdg in {22, 11} else 32.0)
-        transverse_width = rng.uniform(0.4, 2.5 if abs_pdg in {22, 11} else 5.0)
+        local_length = rng.uniform(3.0, 18.0 if abs_pdg in {22, 11} else 42.0)
+        transverse_width = rng.uniform(0.4, 2.8 if abs_pdg in {22, 11} else 8.0) * scatter_scale
         ev1 = local_length**2 * rng.uniform(0.7, 1.3)
         ev2 = transverse_width**2 * rng.uniform(0.7, 1.4)
         ev3 = transverse_width**2 * rng.uniform(0.5, 1.2)
@@ -227,7 +273,7 @@ def _make_tracksters_for_shower(rng, axis, energy, pdg_id, sim_id, is_pu):
         z_b = axis["z_sign"] * (z_abs + z_span / 2)
         z_min = min(z_a, z_b)
         z_max = max(z_a, z_b)
-        time = time0 + rng.normal(0.0, 0.025 if not is_pu else 0.10) + idx * rng.normal(0.001, 0.003)
+        time = time0 + rng.normal(0.0, 0.030 if not is_pu else 0.16) + depth_frac * rng.normal(0.006, 0.012)
 
         rows.append(
             [
@@ -268,59 +314,53 @@ def _make_tracksters_for_shower(rng, axis, energy, pdg_id, sim_id, is_pu):
     return rows, labels, pu_flags
 
 
-def _event_axes_for_scenario(rng, scenario, signal_mean, close_pair_fraction):
-    if scenario == "closeby_pions":
-        base = _sample_axis(rng, z_sign=int(rng.choice([-1, 1])), eta_range=(1.7, 2.7))
-        return [base, _near_axis(base, rng, eta_sigma=0.020, phi_sigma=0.020)], [211, 211], [False, False]
+def _make_activity_centers(rng):
+    centers = []
+    for _ in range(int(rng.integers(3, 7))):
+        centers.append(_decorate_axis(_sample_axis(rng, eta_range=(1.65, 2.85)), rng, crowding=1.6))
+    return centers
 
-    if scenario == "multiparticle":
-        n_particles = int(rng.integers(10, 51))
-        base = _sample_axis(rng, z_sign=int(rng.choice([-1, 1])), eta_range=(1.7, 2.7))
-        axes = [base]
-        for _ in range(n_particles - 1):
-            axes.append(_near_axis(base, rng, eta_sigma=0.12, phi_sigma=0.12))
-        return axes, [_sample_multiparticle_pdg(rng) for _ in axes], [False] * len(axes)
 
-    if scenario == "single_particle_pu":
-        axes = [_sample_axis(rng, z_sign=1), _sample_axis(rng, z_sign=-1)]
-        return axes, [_sample_signal_pdg(rng), _sample_signal_pdg(rng)], [False, False]
+def _sample_axis_near_centers(rng, centers, is_pu=False, close_pair_fraction=0.85):
+    if centers and rng.random() < close_pair_fraction:
+        center = centers[int(rng.integers(0, len(centers)))]
+        if is_pu and rng.random() < 0.22:
+            eta_sigma = rng.uniform(0.010, 0.035)
+            phi_sigma = rng.uniform(0.010, 0.035)
+        else:
+            eta_sigma = rng.uniform(0.035, 0.16 if is_pu else 0.12)
+            phi_sigma = rng.uniform(0.035, 0.16 if is_pu else 0.12)
+        return _near_axis(center, rng, eta_sigma=eta_sigma, phi_sigma=phi_sigma, is_pu=is_pu, crowding=1.8)
+    return _decorate_axis(_sample_axis(rng), rng, is_pu=is_pu, crowding=1.2)
 
-    n_particles = max(2, int(rng.poisson(signal_mean)))
+
+def _event_axes(rng, signal_mean, close_pair_fraction):
+    centers = _make_activity_centers(rng)
+    n_particles = max(8, int(rng.poisson(signal_mean)))
     axes = []
     pdgs = []
-    is_pu = []
-    for idx in range(n_particles):
-        if idx > 0 and axes and rng.random() < close_pair_fraction:
-            axis = _near_axis(axes[int(rng.integers(0, len(axes)))], rng, eta_sigma=0.04, phi_sigma=0.04)
-        else:
-            axis = _sample_axis(rng)
+    for _ in range(n_particles):
+        axis = _sample_axis_near_centers(rng, centers, is_pu=False, close_pair_fraction=close_pair_fraction)
         axes.append(axis)
-        pdgs.append(_sample_signal_pdg(rng))
-        is_pu.append(False)
-    return axes, pdgs, is_pu
+        pdgs.append(_sample_multiparticle_pdg(rng))
+    return axes, pdgs, [False] * len(axes), centers
 
 
-def generate_event(rng, scenario="mixed", signal_mean=12.0, pu_mean=35.0, close_pair_fraction=0.35):
-    if scenario == "mixed":
-        scenario = str(rng.choice(["closeby_pions", "multiparticle", "single_particle_pu"], p=[0.25, 0.35, 0.40]))
-
-    axes, pdgs, pu_flags = _event_axes_for_scenario(rng, scenario, signal_mean, close_pair_fraction)
-    if scenario == "single_particle_pu":
-        n_pu = int(rng.poisson(pu_mean))
-    else:
-        n_pu = int(rng.poisson(max(0.0, 0.15 * pu_mean)))
+def generate_event(rng, signal_mean=30.0, pu_mean=200.0, close_pair_fraction=0.85):
+    axes, pdgs, pu_flags, centers = _event_axes(rng, signal_mean, close_pair_fraction)
+    n_pu = int(rng.poisson(pu_mean))
 
     for _ in range(n_pu):
-        axis = _sample_axis(rng)
+        axis = _sample_axis_near_centers(rng, centers + axes, is_pu=True, close_pair_fraction=0.82)
         axes.append(axis)
-        pdgs.append(_sample_signal_pdg(rng))
+        pdgs.append(_sample_pu_pdg(rng))
         pu_flags.append(True)
 
     rows = []
     labels = []
     is_pu = []
     for sim_id, (axis, pdg_id, pu_flag) in enumerate(zip(axes, pdgs, pu_flags)):
-        energy = _sample_energy(rng, axis, use_pt=(scenario == "single_particle_pu" and not pu_flag))
+        energy = _sample_energy(rng, axis, is_pu=pu_flag)
         shower_rows, shower_labels, shower_pu = _make_tracksters_for_shower(rng, axis, energy, pdg_id, sim_id, pu_flag)
         rows.extend(shower_rows)
         labels.extend(shower_labels)
@@ -345,12 +385,11 @@ def generate_event(rng, scenario="mixed", signal_mean=12.0, pu_mean=35.0, close_
     return event
 
 
-def generate_events(n_events, rng, scenario="mixed", signal_mean=12.0, pu_mean=35.0, close_pair_fraction=0.35):
+def generate_events(n_events, rng, signal_mean=30.0, pu_mean=200.0, close_pair_fraction=0.85):
     return ak.Array(
         [
             generate_event(
                 rng,
-                scenario=scenario,
                 signal_mean=signal_mean,
                 pu_mean=pu_mean,
                 close_pair_fraction=close_pair_fraction,
@@ -376,7 +415,6 @@ def write_dataset(output_dir, config: HGCALLikeDummyConfig):
             events = generate_events(
                 config.events_per_file,
                 rng,
-                scenario=config.scenario,
                 signal_mean=config.signal_mean,
                 pu_mean=config.pu_mean,
                 close_pair_fraction=config.close_pair_fraction,
@@ -388,7 +426,8 @@ def write_dataset(output_dir, config: HGCALLikeDummyConfig):
     metadata["notes"] = [
         "Synthetic public dummy data; no CMS event content is copied.",
         "Ranges follow the thesis baseline: HGCAL eta 1.5-3.0, full phi, 47 layers/endcap density convention.",
-        "Signal mixture is pion-dominated and PU-like events include many non-signal showers.",
+        "Default topology is crowded multiparticle hard scatter with about 200 overlapping PU showers.",
+        "Shower fragments include depth-dependent drift, widening, heavy-tailed angular scatter, and broad PU timing.",
     ]
     with open(osp.join(output_dir, "metadata.json"), "w", encoding="utf-8") as handle:
         json.dump(metadata, handle, indent=2)
