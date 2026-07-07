@@ -18,6 +18,18 @@ from tracksterLinker.utils.dataUtils import *
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 
+def _file_sort_key(path):
+    name = osp.splitext(osp.basename(path))[0]
+    try:
+        return int(name.split("_")[-1])
+    except ValueError:
+        return name
+
+
+def _sorted_basenames(pattern):
+    return [osp.basename(path) for path in sorted(glob(pattern), key=_file_sort_key)]
+
+
 def download_event(id, file, raw_dir):
     data = ak.from_parquet(file)
 
@@ -122,14 +134,22 @@ class DummyDataset(Dataset):
 
     @property
     def raw_file_names(self):
-        return glob(f"{self.raw_dir}/*")
+        return ["DONE"]
 
     @property
     def processed_file_names(self):
-        return glob(f"{self.processed_dir}/data_*.pt")
+        return ["DONE"]
+
+    @property
+    def raw_data_paths(self):
+        return [osp.join(self.raw_dir, name) for name in _sorted_basenames(f"{self.raw_dir}/data_id_*.pt")]
+
+    @property
+    def processed_data_paths(self):
+        return [osp.join(self.processed_dir, name) for name in _sorted_basenames(f"{self.processed_dir}/data_*.pt")]
 
     def download(self):
-        files = glob(f"{self.histo_path}/{self.split}/*.parquet")
+        files = sorted(glob(f"{self.histo_path}/{self.split}/*.parquet"))
         print(files)
 
         with tqdm(total=len(files)) as pbar:
@@ -139,12 +159,13 @@ class DummyDataset(Dataset):
                 for future in as_completed(futures):
                     future.result()
                     pbar.update()
+        torch.save({"split": self.split, "files": len(files)}, osp.join(self.raw_dir, "DONE"))
 
     def process(self):
         idx = 0
 
         with ProcessPoolExecutor(max_workers=self.num_workers) as executor:
-            for raw_path in tqdm(self.raw_paths):
+            for raw_path in tqdm(self.raw_data_paths):
                 run = torch.load(raw_path, weights_only=False)
                 nEvents = len(run)
                 process_event(0, run[0], self.model_feature_keys, self.node_feature_dict, self.processed_dir, self.skeleton_features, self.device)
@@ -166,17 +187,18 @@ class DummyDataset(Dataset):
             torch.save(self.edge_scaler, osp.join(self.root_dir, "edge_scaler.pt"))
 
         idx = 0
-        for i, file in tqdm(enumerate(self.processed_file_names), desc="Fixing holes"):
+        for idx, file in tqdm(enumerate(self.processed_data_paths), desc="Fixing holes"):
             sample = torch.load(file, weights_only=False)
+            fixed_path = osp.join(self.processed_dir, f"data_{idx}.pt")
 
-            if (i != idx):
+            if (file != fixed_path):
                 os.remove(file)
-            torch.save(sample, osp.join(self.processed_dir, f"data_{idx}.pt"))
-            idx += 1
+            torch.save(sample, fixed_path)
+        torch.save({"split": self.split, "events": idx + 1 if self.processed_data_paths else 0}, osp.join(self.processed_dir, "DONE"))
 
 
     def len(self):
-        return len(self.processed_file_names)
+        return len(self.processed_data_paths)
 
     def get(self, idx):
         data = torch.load(osp.join(self.processed_dir, f'data_{idx}.pt'), weights_only=False)
