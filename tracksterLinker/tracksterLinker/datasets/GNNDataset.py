@@ -122,7 +122,7 @@ def process_event(idx, event, model_feature_keys, node_feature_dict, processed_d
         return None, None
 
     # build feature list
-    features = cp.stack([ak.to_cupy(event[field]) for field in model_feature_keys], axis=1)
+    features = cp.stack([awkward_to_cupy(event[field]) for field in model_feature_keys], axis=1)
 
     # Create base graph from geometrical graph = [[], []]
     targets = ak.ravel(event.outer)
@@ -130,7 +130,7 @@ def process_event(idx, event, model_feature_keys, node_feature_dict, processed_d
     sources = ak.broadcast_arrays(sources, event.outer)[0]
     sources = ak.ravel(sources)
 
-    edges = cp.transpose(cp.stack([ak.to_cupy(targets), ak.to_cupy(sources)]))
+    edges = cp.transpose(cp.stack([awkward_to_cupy(targets, dtype=cp.int64), awkward_to_cupy(sources, dtype=cp.int64)]))
     if (edges.shape[0] < 2):
         return None, None
 

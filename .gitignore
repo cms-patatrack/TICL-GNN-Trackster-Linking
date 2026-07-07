@@ -1,6 +1,7 @@
 # Package Specific
 tensorboard_runs/
 .venv
+LogML_GNN_Poster
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -57,7 +57,7 @@ def process_event(idx, event, model_feature_keys, node_feature_dict, processed_d
         return None, None
 
     # build feature list
-    features = cp.stack([ak.to_cupy(event[field]) for field in model_feature_keys], axis=1)
+    features = cp.stack([awkward_to_cupy(event[field]) for field in model_feature_keys], axis=1)
 
     # Create base graph from geometrical graph = [[], []]
     targets = ak.ravel(event.outer)
@@ -65,7 +65,7 @@ def process_event(idx, event, model_feature_keys, node_feature_dict, processed_d
     sources = ak.broadcast_arrays(sources, event.outer)[0]
     sources = ak.ravel(sources)
 
-    edges = cp.transpose(cp.stack([ak.to_cupy(targets), ak.to_cupy(sources)]))
+    edges = cp.transpose(cp.stack([awkward_to_cupy(targets, dtype=cp.int64), awkward_to_cupy(sources, dtype=cp.int64)]))
     if (edges.shape[0] < 2):
         return None, None
 
@@ -76,14 +76,14 @@ def process_event(idx, event, model_feature_keys, node_feature_dict, processed_d
     edge_features[:, 3] = calc_spatial_compatibility(edges, features, node_feature_dict)
     edge_features[:, 4] = calc_edge_difference(edges, features, node_feature_dict, key="time")
 
-    e_y = ak.to_cupy(event.y)
+    e_y = awkward_to_cupy(event.y, dtype=cp.int64)
     y = cp.zeros(edges.shape[0], dtype='i')
     y[e_y[edges[:, 0]] == e_y[edges[:, 1]]] = 1
     y[e_y[edges[:, 0]] != e_y[edges[:, 1]]] = 0
     y[e_y[edges[:, 0]] == -1] = 0
     y[e_y[edges[:, 1]] == -1] = 0
 
-    isPU = ak.to_cupy(event["isPU"])
+    isPU = awkward_to_cupy(event["isPU"], dtype=cp.int64)
     PU_info = cp.stack([cross_PU(isPU, edges), mask_PU(isPU, edges, PU=False), mask_PU(isPU, edges, PU=True)], axis=1)
 
     # Read data from `raw_path`.

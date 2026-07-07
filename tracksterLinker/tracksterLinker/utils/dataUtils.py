@@ -6,6 +6,15 @@ import torch
 from sklearn.neighbors import KDTree
 
 
+def awkward_to_cupy(values, dtype=None):
+    """Convert Awkward content to CuPy without Awkward's optional cuda.compute bridge."""
+    if isinstance(values, cp.ndarray):
+        return values.astype(dtype, copy=False) if dtype is not None else values
+
+    array = ak.to_numpy(values)
+    return cp.asarray(array, dtype=dtype)
+
+
 def calc_LC_density(num_LCs):
     return num_LCs / (2*(3 - 1.5) * (2 * 47))
 
@@ -15,10 +24,14 @@ def calc_trackster_density(NTracksters):
 
 
 def calc_group_score(edges, y, score, shared_energy, raw_energy):
-    termSrc = (1-ak.to_cupy(score)[edges[:, 0]]) * ak.to_cupy(shared_energy)[edges[:, 0]] / ak.to_cupy(raw_energy)[edges[:, 0]]
-    termDest = (1-ak.to_cupy(score)[edges[:, 1]]) * ak.to_cupy(shared_energy)[edges[:, 1]] / ak.to_cupy(raw_energy)[edges[:, 1]]
+    score = awkward_to_cupy(score)
+    shared_energy = awkward_to_cupy(shared_energy)
+    raw_energy = awkward_to_cupy(raw_energy)
+
+    termSrc = (1-score[edges[:, 0]]) * shared_energy[edges[:, 0]] / raw_energy[edges[:, 0]]
+    termDest = (1-score[edges[:, 1]]) * shared_energy[edges[:, 1]] / raw_energy[edges[:, 1]]
     weight = (termSrc + termDest)/2 
-    y = ak.to_cupy(y)
+    y = awkward_to_cupy(y)
     weight[y[edges[:, 0]] != y[edges[:, 1]]] = 0
     weight[y[edges[:, 0]] == -1] = 0
     weight[y[edges[:, 1]] == -1] = 0

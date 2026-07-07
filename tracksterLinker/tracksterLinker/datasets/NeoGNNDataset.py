@@ -12,7 +12,7 @@ from torch.utils.data import Dataset
 import torch.nn.functional as F
 from torch_geometric.data import Data
 
-from tracksterLinker.utils.dataUtils import calc_weights, cross_PU, mask_PU 
+from tracksterLinker.utils.dataUtils import awkward_to_cupy, calc_weights, cross_PU, mask_PU 
 
 from collections.abc import Sequence
 from typing import Callable
@@ -131,11 +131,11 @@ class NeoGNNDataset(Dataset):
 
                 for event in allGNNtrain_array:
                     nTracksters = len(event["node_barycenter_x"])
-                    features = cp.stack([ak.to_cupy(event[f"node_{field}"]) for field in self.model_feature_keys], axis=1)
-                    edges = cp.stack([ak.to_cupy(ak.flatten(event[f"edgeIndex_{field}"])) for field in ["out", "in"]], axis=1)
-                    edge_features = cp.stack([ak.to_cupy(ak.flatten(event[f"edge_{field}"])) for field in self.edge_feature_keys], axis=1)
-                    y = ak.to_cupy(ak.flatten(event["edge_weight"]))
-                    isPU = ak.to_cupy(event["simTrackster_isPU"][event["node_match_idx"]])
+                    features = cp.stack([awkward_to_cupy(event[f"node_{field}"]) for field in self.model_feature_keys], axis=1)
+                    edges = cp.stack([awkward_to_cupy(ak.flatten(event[f"edgeIndex_{field}"]), dtype=cp.int64) for field in ["out", "in"]], axis=1)
+                    edge_features = cp.stack([awkward_to_cupy(ak.flatten(event[f"edge_{field}"])) for field in self.edge_feature_keys], axis=1)
+                    y = awkward_to_cupy(ak.flatten(event["edge_weight"]))
+                    isPU = awkward_to_cupy(event["simTrackster_isPU"][event["node_match_idx"]], dtype=cp.int64)
 
                     PU_info = cp.stack([cross_PU(isPU, edges), mask_PU(isPU, edges, PU=False), mask_PU(isPU, edges, PU=True)], axis=1)
                     y[(y > 0) & PU_info[:, 0]] = 0

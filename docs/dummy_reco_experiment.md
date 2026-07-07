@@ -50,6 +50,29 @@ The experiment writes:
 - `reconstruction_metric_bars.png`: held-out reconstruction metrics.
 - `focal/*.pt` and `focal_contrastive/*.pt`: checkpoints with chosen validation threshold.
 
+## Poster Stability Plots
+
+After the focal-only and focal+contrastive checkpoints exist, rerun the perturbation-stability
+plots used by the LogML poster:
+
+```bash
+python scripts/stabilityAnalysis/dummyEdgeStability.py \
+  --work-dir outputs/dummy_reco_experiment \
+  --num-graphs 100 \
+  --num-perturbations 50 \
+  --output-dir LogML_GNN_Poster/images
+```
+
+This overwrites:
+
+- `LogML_GNN_Poster/images/all_edge_stab.png`
+- `LogML_GNN_Poster/images/signal_edge_stab.png`
+- `LogML_GNN_Poster/images/dummy_edge_stability_summary.json`
+
+The heatmap value is `focal flip rate - focal+contrastive flip rate` under the same transverse
+PCA perturbations. Positive blue regions mean the contrastive model is more stable; negative red
+regions mean it flips more often than the focal baseline.
+
 ## Poster Metrics
 
 Use the edge metrics to show that the classifiers learned the link task, but lead with reconstruction:
