@@ -1,5 +1,6 @@
 import os.path as osp
 import os
+import multiprocessing as mp
 from glob import glob
 
 import awkward as ak
@@ -28,6 +29,13 @@ def _file_sort_key(path):
 
 def _sorted_basenames(pattern):
     return [osp.basename(path) for path in sorted(glob(pattern), key=_file_sort_key)]
+
+
+def _process_pool_kwargs(num_workers, device):
+    kwargs = {"max_workers": num_workers}
+    if torch.device(device).type == "cuda":
+        kwargs["mp_context"] = mp.get_context("spawn")
+    return kwargs
 
 
 def download_event(id, file, raw_dir):
@@ -84,7 +92,11 @@ def process_event(idx, event, model_feature_keys, node_feature_dict, processed_d
     y[e_y[edges[:, 1]] == -1] = 0
 
     isPU = awkward_to_cupy(event["isPU"], dtype=cp.int64)
-    PU_info = cp.stack([cross_PU(isPU, edges), mask_PU(isPU, edges, PU=False), mask_PU(isPU, edges, PU=True)], axis=1)
+    cross_pu_edges = cross_PU(isPU, edges)
+    signal_edges = mask_PU(isPU, edges, PU=False)
+    pu_edges = mask_PU(isPU, edges, PU=True)
+    y[cross_pu_edges | pu_edges] = 0
+    PU_info = cp.stack([cross_pu_edges, signal_edges, pu_edges], axis=1)
 
     # Read data from `raw_path`.
     data = Data(
@@ -153,7 +165,7 @@ class DummyDataset(Dataset):
         print(files)
 
         with tqdm(total=len(files)) as pbar:
-            with ProcessPoolExecutor(max_workers=self.num_workers) as executor:
+            with ProcessPoolExecutor(**_process_pool_kwargs(self.num_workers, self.device)) as executor:
                 futures = [executor.submit(download_event, id, files[id], self.raw_dir) for id in range(len(files))]
 
                 for future in as_completed(futures):
@@ -164,11 +176,10 @@ class DummyDataset(Dataset):
     def process(self):
         idx = 0
 
-        with ProcessPoolExecutor(max_workers=self.num_workers) as executor:
+        with ProcessPoolExecutor(**_process_pool_kwargs(self.num_workers, self.device)) as executor:
             for raw_path in tqdm(self.raw_data_paths):
                 run = torch.load(raw_path, weights_only=False)
                 nEvents = len(run)
-                process_event(0, run[0], self.model_feature_keys, self.node_feature_dict, self.processed_dir, self.skeleton_features, self.device)
                 futures = [executor.submit(process_event, idx+event, run[event], self.model_feature_keys, self.node_feature_dict,
                                            self.processed_dir, self.skeleton_features, self.device) for event in range(nEvents)]
                 idx += nEvents
