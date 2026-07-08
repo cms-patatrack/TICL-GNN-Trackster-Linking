@@ -5,6 +5,7 @@ import os.path as osp
 import random
 import sys
 import tempfile
+import multiprocessing as mp
 
 REPO_ROOT = osp.abspath(osp.join(osp.dirname(__file__), ".."))
 sys.path.insert(0, osp.join(REPO_ROOT, "tracksterLinker"))
@@ -355,4 +356,5 @@ def main():
 
 
 if __name__ == "__main__":
+    mp.set_start_method("spawn", force=True)
     main()
