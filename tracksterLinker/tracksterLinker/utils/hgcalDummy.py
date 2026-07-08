@@ -42,7 +42,7 @@ FEATURE_KEYS = [
 ]
 
 HGCAL_DENSITY_VOLUME = 2 * (3.0 - 1.5) * (2 * 47)
-HGCAL_Z_MIN_CM = 320.0
+HGCAL_Z_MIN_CM = 322.0
 HGCAL_Z_MAX_CM = 520.0
 
 SHOWER_STYLES = {
@@ -97,6 +97,7 @@ SHOWER_STYLES = {
         "hit_range": (4.5, 9.5),
     },
 }
+SIGNAL_SHOWER_ARCHETYPES = tuple(SHOWER_STYLES.keys())
 
 @dataclass
 class HGCALLikeDummyConfig:
@@ -104,7 +105,7 @@ class HGCALLikeDummyConfig:
     val_files: int = 20
     test_files: int = 20
     events_per_file: int = 10
-    signal_mean: float = 30.0
+    signal_mean: float = 20.0
     pu_mean: float = 200.0
     close_pair_fraction: float = 0.85
     seed: int = 12345
@@ -269,7 +270,7 @@ def _fragment_count(rng, energy, pdg_id, is_pu, style_name):
     mean *= style["fragment_scale"]
 
     if is_pu:
-        mean = 4.0 + 0.85 * mean
+        mean = 5.2 + 1.12 * mean
 
     if rng.random() < (0.10 if is_pu else 0.18):
         mean *= rng.uniform(1.25, 2.10)
@@ -306,48 +307,42 @@ def _energy_fractions(rng, n_fragments, style_name):
     return rng.dirichlet(alpha)
 
 
-def _shower_depths(rng, n_fragments, pdg_id, style_name):
-    abs_pdg = abs(int(pdg_id))
-    if abs_pdg in {22, 11, 13}:
-        z_stop = rng.uniform(360.0, 430.0)
-        z_start = rng.uniform(HGCAL_Z_MIN_CM, 345.0)
-    else:
-        z_stop = rng.uniform(430.0, HGCAL_Z_MAX_CM)
-        z_start = rng.uniform(HGCAL_Z_MIN_CM, 375.0)
-
+def _shower_depths(rng, n_fragments, pdg_id, style_name, is_pu):
+    front_face = rng.uniform(323.0, 328.0)
     if style_name == "straight":
-        quantiles = np.linspace(0.03, 0.98, n_fragments) + rng.normal(0.0, 0.012, size=n_fragments)
-        depths = z_start + np.clip(quantiles, 0.0, 1.0) * (z_stop - z_start)
+        tails = rng.gamma(1.20, 8.0, size=n_fragments)
+        late = rng.random(n_fragments) < (0.05 if is_pu else 0.04)
+        tails[late] += rng.exponential(26.0, size=int(np.count_nonzero(late)))
     elif style_name == "curved":
-        quantiles = np.sort(rng.beta(1.15, 1.35, size=n_fragments))
-        depths = z_start + quantiles * (z_stop - z_start)
+        tails = rng.gamma(1.30, 10.0, size=n_fragments)
+        late = rng.random(n_fragments) < (0.09 if is_pu else 0.08)
+        tails[late] += rng.exponential(30.0, size=int(np.count_nonzero(late)))
+    elif style_name == "broad_tree":
+        late = rng.random(n_fragments) < (0.25 if is_pu else 0.22)
+        tails = rng.gamma(1.25, 9.5, size=n_fragments)
+        tails[late] = 20.0 + rng.gamma(1.60, 20.0, size=int(np.count_nonzero(late)))
     elif style_name == "large_shower":
-        z_stop = max(z_stop, rng.uniform(470.0, HGCAL_Z_MAX_CM))
-        quantiles = np.sort(rng.beta(1.55, 1.25, size=n_fragments))
-        depths = z_start + quantiles * (z_stop - z_start)
-    elif style_name == "multi_shower_tree" and n_fragments > 3:
-        n_cores = min(n_fragments, int(rng.integers(2, 5)))
-        shower_span = max(z_stop - z_start, 1.0)
-        core_margin = min(10.0, 0.20 * shower_span)
-        core_low = z_start + core_margin
-        core_high = z_stop - core_margin
-        if core_high <= core_low:
-            core_low, core_high = z_start, z_stop
-        core_centers = np.sort(rng.uniform(core_low, core_high, size=n_cores))
-        core_weights = rng.dirichlet(np.full(n_cores, 0.8))
-        assignments = rng.choice(np.arange(n_cores), size=n_fragments, p=core_weights)
-        depths = core_centers[assignments] + rng.normal(0.0, rng.uniform(5.0, 14.0), size=n_fragments)
-    elif style_name == "broad_tree" and n_fragments > 3:
-        split = int(rng.integers(1, n_fragments))
-        early = rng.uniform(z_start, min(z_stop, z_start + 85.0), size=split)
-        late = rng.uniform(max(z_start, z_stop - 85.0), z_stop, size=n_fragments - split)
-        depths = np.concatenate([early, late])
+        late = rng.random(n_fragments) < (0.35 if is_pu else 0.32)
+        tails = rng.gamma(1.35, 11.0, size=n_fragments)
+        tails[late] = 16.0 + rng.gamma(1.80, 22.0, size=int(np.count_nonzero(late)))
+    elif style_name == "multi_shower_tree":
+        centers = np.asarray([6.0, 18.0, 42.0, 74.0])
+        widths = np.asarray([4.5, 7.0, 10.0, 16.0])
+        weights = np.asarray([0.50, 0.28, 0.17, 0.05])
+        assignments = rng.choice(np.arange(len(centers)), size=n_fragments, p=weights)
+        tails = centers[assignments] + rng.normal(0.0, widths[assignments], size=n_fragments)
+        late = rng.random(n_fragments) < (0.07 if is_pu else 0.06)
+        tails[late] += rng.exponential(32.0, size=int(np.count_nonzero(late)))
     else:
-        quantiles = np.sort(rng.beta(1.3, 1.4, size=n_fragments))
-        depths = z_start + quantiles * (z_stop - z_start)
+        tails = rng.gamma(1.35, 12.0, size=n_fragments)
 
-    jitter = 5.5 if style_name == "straight" else 8.0 if style_name == "curved" else 13.0
-    depths += rng.normal(0.0, jitter if abs_pdg in {22, 11, 13} else jitter + 4.0, size=n_fragments)
+    abs_pdg = abs(int(pdg_id))
+    if abs_pdg in {211, 321, 130, 2112, 2212}:
+        tails += rng.gamma(0.5, 1.5, size=n_fragments)
+    if is_pu:
+        tails += rng.normal(0.0, 3.5, size=n_fragments)
+
+    depths = front_face + tails + rng.normal(0.0, 3.0, size=n_fragments)
     return np.sort(np.clip(depths, HGCAL_Z_MIN_CM, HGCAL_Z_MAX_CM))
 
 
@@ -413,13 +408,14 @@ def _sample_shape_features(rng, raw_energy, style_name, is_pu):
 
 
 def _sample_time(rng, depth_frac, raw_energy, style_name, is_pu, time0):
-    invalid_prob = 0.60 if is_pu else 0.36
+    invalid_prob = 0.50 if is_pu else 0.30
     if raw_energy < 1.0:
         invalid_prob += 0.14
     if style_name in {"broad_tree", "multi_shower_tree", "large_shower"}:
         invalid_prob += 0.05
     if style_name == "straight":
         invalid_prob -= 0.10
+    invalid_prob += 0.55 / (1.0 + math.exp(-(depth_frac - 0.18) / 0.045))
 
     if rng.random() < np.clip(invalid_prob, 0.05, 0.86):
         return -99.0
@@ -430,10 +426,10 @@ def _sample_time(rng, depth_frac, raw_energy, style_name, is_pu, time0):
 
 
 def _make_tracksters_for_shower(rng, axis, energy, pdg_id, sim_id, is_pu):
-    style_name = _sample_shower_style(rng, pdg_id, is_pu)
+    style_name = axis.get("style_name") or _sample_shower_style(rng, pdg_id, is_pu)
     n_fragments = _fragment_count(rng, energy, pdg_id, is_pu, style_name)
     fractions = _energy_fractions(rng, n_fragments, style_name)
-    depths = _shower_depths(rng, n_fragments, pdg_id, style_name)
+    depths = _shower_depths(rng, n_fragments, pdg_id, style_name, is_pu)
     pid = _particle_probabilities(pdg_id, rng)
     rows = []
     labels = []
@@ -480,14 +476,19 @@ def _make_tracksters_for_shower(rng, axis, energy, pdg_id, sim_id, is_pu):
         position = _eta_phi_z_to_xyz(eta, phi, z_abs, axis["z_sign"])
 
         direction = _sample_evector(rng, position, style_name, is_pu)
-        raw_energy = max(0.02, energy * frac * rng.lognormal(mean=0.0, sigma=0.18 if not is_pu else 0.35))
+        front_gain = 0.42 + 1.28 * math.exp(-depth_frac / 0.26)
+        energy_smear = rng.lognormal(mean=0.0, sigma=0.18 if not is_pu else 0.32)
+        pedestal = rng.gamma(1.8, 0.72) * front_gain
+        raw_energy = max(0.04, energy * frac * energy_smear * front_gain + pedestal)
         em_fraction = rng.uniform(0.72, 0.95) if abs_pdg in {22, 11} else rng.beta(1.8, 3.6)
         raw_em_energy = raw_energy * em_fraction
 
-        lc_mean = (5.8 if is_pu else 6.8) + style["lc_scale"] * math.sqrt(raw_energy)
+        lc_front_gain = 0.45 + 1.30 * math.exp(-depth_frac / 0.24)
+        lc_mean = (4.6 if is_pu else 5.5) * lc_front_gain + style["lc_scale"] * math.sqrt(raw_energy) * (0.75 + lc_front_gain)
         num_lcs = int(max(1 if is_pu else 2, rng.poisson(lc_mean)))
         hit_low, hit_high = style["hit_range"]
-        num_hits = int(max(num_lcs, rng.poisson(num_lcs * rng.uniform(hit_low, hit_high))))
+        hit_gain = 0.30 + 0.70 * math.exp(-depth_frac / 0.26)
+        num_hits = int(max(num_lcs, rng.poisson(num_lcs * rng.uniform(hit_low, hit_high) * hit_gain)))
         ev1, ev2, ev3, sigma1, sigma2, sigma3 = _sample_shape_features(rng, raw_energy, style_name, is_pu)
 
         z_span = max(1.0, math.sqrt(ev1) * rng.uniform(0.55, 1.35))
@@ -558,17 +559,20 @@ def _sample_axis_near_centers(rng, centers, is_pu=False, close_pair_fraction=0.8
 
 def _event_axes(rng, signal_mean, close_pair_fraction):
     centers = _make_activity_centers(rng)
-    n_particles = max(8, int(rng.poisson(signal_mean)))
+    n_particles = max(len(SIGNAL_SHOWER_ARCHETYPES), int(rng.poisson(signal_mean)))
+    signal_styles = [SIGNAL_SHOWER_ARCHETYPES[idx % len(SIGNAL_SHOWER_ARCHETYPES)] for idx in range(n_particles)]
+    rng.shuffle(signal_styles)
     axes = []
     pdgs = []
-    for _ in range(n_particles):
+    for style_name in signal_styles:
         axis = _sample_axis_near_centers(rng, centers, is_pu=False, close_pair_fraction=close_pair_fraction)
+        axis["style_name"] = style_name
         axes.append(axis)
         pdgs.append(_sample_multiparticle_pdg(rng))
     return axes, pdgs, [False] * len(axes), centers
 
 
-def generate_event(rng, signal_mean=30.0, pu_mean=200.0, close_pair_fraction=0.85):
+def generate_event(rng, signal_mean=20.0, pu_mean=200.0, close_pair_fraction=0.85):
     axes, pdgs, pu_flags, centers = _event_axes(rng, signal_mean, close_pair_fraction)
     n_pu = int(rng.poisson(pu_mean))
 
@@ -607,7 +611,7 @@ def generate_event(rng, signal_mean=30.0, pu_mean=200.0, close_pair_fraction=0.8
     return event
 
 
-def generate_events(n_events, rng, signal_mean=30.0, pu_mean=200.0, close_pair_fraction=0.85):
+def generate_events(n_events, rng, signal_mean=20.0, pu_mean=200.0, close_pair_fraction=0.85):
     return ak.Array(
         [
             generate_event(
@@ -648,9 +652,10 @@ def write_dataset(output_dir, config: HGCALLikeDummyConfig):
     metadata["notes"] = [
         "Synthetic public dummy data; no CMS event content is copied.",
         "Ranges follow the thesis baseline: HGCAL eta 1.5-3.0, full phi, 47 layers/endcap density convention.",
-        "Default topology is crowded multiparticle hard scatter with about 200 overlapping PU showers.",
-        "Particles are sampled from five internal shower styles: straight, curved, broad tree, large shower, and multi-shower tree.",
-        "Shower fragments include depth-dependent energy degradation, branch splitting, heavy-tailed angular scatter, broad PU timing, and invalid time markers.",
+        "Default topology has about 20 signal shower systems embedded in about 200 overlapping PU shower systems.",
+        "Signal showers cycle through five archetypes: straight, curved, broad tree, large shower, and multi-shower tree.",
+        "Depths are tuned to the prepared 20-pion 200-PU ROOT sample: a strong HGCAL-front peak near 325-340 cm with a sparse tail toward 500 cm.",
+        "Shower fragments include depth-dependent energy, LC, and hit degradation, branch splitting, heavy-tailed angular scatter, broad PU timing, and invalid time markers.",
     ]
     with open(osp.join(output_dir, "metadata.json"), "w", encoding="utf-8") as handle:
         json.dump(metadata, handle, indent=2)
@@ -660,17 +665,28 @@ def summarise_parquet_files(files: Sequence[str]) -> Dict[str, float]:
     n_events = 0
     n_tracksters = []
     n_pu = []
+    n_signal_tracksters = []
     n_signal_labels = []
     energies = []
+    z_abs = []
+    num_lcs = []
+    num_hits = []
+    invalid_times = []
     for file_name in files:
         data = ak.from_parquet(file_name)
         for event in data:
             n_events += 1
             n_tracksters.append(len(event["y"]))
-            n_pu.append(int(np.asarray(event["isPU"]).sum()))
-            labels = np.asarray(event["y"])[np.asarray(event["isPU"]) == 0]
+            is_pu = np.asarray(event["isPU"])
+            n_pu.append(int(is_pu.sum()))
+            n_signal_tracksters.append(int((is_pu == 0).sum()))
+            labels = np.asarray(event["y"])[is_pu == 0]
             n_signal_labels.append(len(np.unique(labels)))
             energies.extend(np.asarray(event["raw_energy"], dtype=float).tolist())
+            z_abs.extend(np.abs(np.asarray(event["barycenter_z"], dtype=float)).tolist())
+            num_lcs.extend(np.asarray(event["num_LCs"], dtype=float).tolist())
+            num_hits.extend(np.asarray(event["num_hits"], dtype=float).tolist())
+            invalid_times.extend((np.asarray(event["time"], dtype=float) < -90.0).tolist())
 
     if n_events == 0:
         return {}
@@ -680,7 +696,17 @@ def summarise_parquet_files(files: Sequence[str]) -> Dict[str, float]:
         "tracksters_mean": float(np.mean(n_tracksters)),
         "tracksters_p95": float(np.percentile(n_tracksters, 95)),
         "pu_tracksters_mean": float(np.mean(n_pu)),
+        "pu_trackster_fraction": float(np.sum(n_pu) / max(1, np.sum(n_tracksters))),
+        "signal_tracksters_mean": float(np.mean(n_signal_tracksters)),
         "signal_simtracksters_mean": float(np.mean(n_signal_labels)),
+        "abs_z_p5": float(np.percentile(z_abs, 5)),
+        "abs_z_median": float(np.median(z_abs)),
+        "abs_z_p95": float(np.percentile(z_abs, 95)),
         "energy_median": float(np.median(energies)),
         "energy_p95": float(np.percentile(energies, 95)),
+        "num_LCs_median": float(np.median(num_lcs)),
+        "num_LCs_p95": float(np.percentile(num_lcs, 95)),
+        "num_hits_median": float(np.median(num_hits)),
+        "num_hits_p95": float(np.percentile(num_hits, 95)),
+        "invalid_time_fraction": float(np.mean(invalid_times)),
     }

@@ -12,7 +12,7 @@ from tracksterLinker.utils.hgcalDummy import HGCALLikeDummyConfig, summarise_par
 
 base_folder = osp.abspath(osp.join(REPO_ROOT, "..", "data"))
 data_folder = osp.join(base_folder, "linking_dataset", "dummy_reco_experiment", "histo")
-signal_mean = 30.0
+signal_mean = 20.0
 pu_mean = 200.0
 close_pair_fraction = 0.85
 

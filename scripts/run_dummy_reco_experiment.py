@@ -42,7 +42,7 @@ raw_data_folder = osp.join(data_folder, "histo")
 data_folder_training = osp.join(data_folder, "dataset_dummy_reco")
 data_folder_val = osp.join(data_folder, "dataset_dummy_reco_val")
 data_folder_test = osp.join(data_folder, "dataset_dummy_reco_test")
-signal_mean = 30.0
+signal_mean = 20.0
 pu_mean = 200.0
 close_pair_fraction = 0.85
 
