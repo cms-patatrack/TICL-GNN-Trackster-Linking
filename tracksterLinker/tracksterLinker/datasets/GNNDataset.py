@@ -5,7 +5,7 @@ from glob import glob
 import uproot as uproot
 import awkward as ak
 import numpy as np
-import cupy as cp
+import numpy as cp
 
 import joblib
 from tqdm import tqdm

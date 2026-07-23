@@ -5,7 +5,7 @@ from glob import glob
 
 import awkward as ak
 import numpy as np
-import cupy as cp
+import numpy as cp
 
 import joblib
 from tqdm import tqdm
@@ -212,5 +212,5 @@ class DummyDataset(Dataset):
         return len(self.processed_data_paths)
 
     def get(self, idx):
-        data = torch.load(osp.join(self.processed_dir, f'data_{idx}.pt'), weights_only=False)
+        data = torch.load(osp.join(self.processed_dir, f'data_{idx}.pt'), weights_only=False, map_location=torch.device('cpu'))
         return data

@@ -1,4 +1,4 @@
-import cupy as cp
+import numpy as cp
 import numpy as np
 import awkward as ak
 import torch

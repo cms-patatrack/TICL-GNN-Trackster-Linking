@@ -1,5 +1,5 @@
 import torch
-import cupy as cp
+import numpy as cp
 import awkward as ak
 
 from typing import List, Dict, Any

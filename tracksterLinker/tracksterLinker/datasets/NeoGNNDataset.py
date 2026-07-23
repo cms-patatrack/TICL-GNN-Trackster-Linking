@@ -4,7 +4,7 @@ import os.path as osp
 from glob import glob
 
 import numpy as np
-import cupy as cp
+import numpy as cp
 
 import awkward as ak
 import torch

@@ -1,3 +1,4 @@
+
 import argparse
 import json
 import os
@@ -6,6 +7,8 @@ import sys
 import tempfile
 from glob import glob
 
+REPO_ROOT = osp.abspath(osp.join(osp.dirname(__file__), ".."))
+sys.path.insert(0, osp.join(REPO_ROOT, "tracksterLinker"))
 os.environ.setdefault("MPLCONFIGDIR", osp.join(tempfile.gettempdir(), "matplotlib"))
 
 import matplotlib
@@ -17,18 +20,28 @@ import numpy as np
 import torch
 from matplotlib.colors import LinearSegmentedColormap
 
+from tracksterLinker.datasets.DummyDataset import DummyDataset
+from tracksterLinker.GNN.LossFunctions import CombinedLoss, FocalLossLogits
+from tracksterLinker.GNN.TrackLinkingNet import GNN_TrackLinkingNet, weight_init
+from tracksterLinker.GNN.train import run_gnn_training, validate
+from tracksterLinker.multiGNN.PUNet import PUNet
+from tracksterLinker.utils.graphUtils import negative_edge_imbalance, print_graph_statistics
+from tracksterLinker.utils.hgcalDummy import HGCALLikeDummyConfig, write_dataset
+from tracksterLinker.utils.plotResults import plot_metric_bars, plot_training_comparison
+from tracksterLinker.utils.reco_metrics import (
+    edge_classification_metrics,
+    evaluate_model_reconstruction,
+    evaluate_unlinked_reconstruction,
+    find_best_edge_threshold,
+    write_metric_csv,
+)
 
-REPO_ROOT = osp.abspath(osp.join(osp.dirname(__file__), "..", ".."))
-sys.path.insert(0, osp.join(REPO_ROOT, "tracksterLinker"))
 
-
-POSTER_EMPTY = (1.0, 1.0, 1.0, 0.0)
-POSTER_RED = "#61C5D3"
-POSTER_YELLOW = "#E15E32"
-POSTER_WHITE = "#F2F5FF"
-
-TEXT_COLOR = "#2f2f2f"
-SPINE_COLOR = "#2f2f2f"
+POSTER_BLUE = "#0033A0"
+POSTER_LIGHT_BLUE = "#6EA6D9"
+POSTER_RED = "#B0405A"
+POSTER_GRAY = "#F4F6F8"
+TEXT_COLOR = "#1F2933"
 
 
 # Dummy outputs default to ../data while keeping the existing training_data/linking_dataset layout.
@@ -64,9 +77,9 @@ def parse_args():
     parser.add_argument("--output-dir", default=None, help="Override plot output folder. Default: <base-folder>/training_data/<run-name>_edge_stability.")
     parser.add_argument("--focal-checkpoint", default=None)
     parser.add_argument("--contrastive-checkpoint", default=None)
-    parser.add_argument("--num-graphs", type=int, default=25)
-    parser.add_argument("--num-perturbations", type=int, default=50)
-    parser.add_argument("--bins", type=int, default=200)
+    parser.add_argument("--num-graphs", type=int, default=10)
+    parser.add_argument("--num-perturbations", type=int, default=1)
+    parser.add_argument("--bins", type=int, default=800)
     parser.add_argument("--num-workers", type=int, default=8)
     parser.add_argument("--device", default=None, help="Example: cuda, cuda:0, or cpu.")
     parser.add_argument("--seed", type=int, default=12345)
@@ -181,7 +194,7 @@ def predict_edges(model, sample, node_features, threshold):
     #return scores >= threshold
 
 
-def append_records(records, key, x, y, z, gain, focal_flip, contrastive_flip, mask):
+def append_records(records, key, x, y, gain, focal_flip, contrastive_flip, mask):
     if mask is None:
         mask_np = np.ones(len(gain), dtype=bool)
     else:
@@ -190,7 +203,6 @@ def append_records(records, key, x, y, z, gain, focal_flip, contrastive_flip, ma
         return
     records[key]["x"].append(x[mask_np])
     records[key]["y"].append(y[mask_np])
-    records[key]["z"].append(z[mask_np])
     records[key]["gain"].append(gain[mask_np])
     records[key]["focal_flip"].append(focal_flip[mask_np])
     records[key]["contrastive_flip"].append(contrastive_flip[mask_np])
@@ -213,13 +225,12 @@ def stability_records(args, dataset, dataset_cls, focal_model, contrastive_model
 
     torch.manual_seed(args.seed)
     records = {
-            "all": {"x": [], "y": [], "z": [], "gain": [], "focal_flip": [], "contrastive_flip": []},
-        "signal": {"x": [], "y": [], "z": [], "gain": [], "focal_flip": [], "contrastive_flip": []},
+        "all": {"x": [], "y": [], "gain": [], "focal_flip": [], "contrastive_flip": []},
+        "signal": {"x": [], "y": [], "gain": [], "focal_flip": [], "contrastive_flip": []},
     }
 
     x_idx = dataset_cls.node_feature_dict["barycenter_x"]
     y_idx = dataset_cls.node_feature_dict["barycenter_y"]
-    z_idx = dataset_cls.node_feature_dict["barycenter_z"]
     n_graphs = min(args.num_graphs, len(dataset))
 
     for graph_idx in range(n_graphs):
@@ -230,6 +241,7 @@ def stability_records(args, dataset, dataset_cls, focal_model, contrastive_model
 
         with torch.no_grad():
             focal_base = predict_edges(focal_model, sample, sample.x, focal_model.threshold)
+            print(focal_base)
             contrastive_base = predict_edges(contrastive_model, sample, sample.x, contrastive_model.threshold)
 
             focal_flips = torch.zeros_like(focal_base, dtype=torch.float32)
@@ -237,12 +249,13 @@ def stability_records(args, dataset, dataset_cls, focal_model, contrastive_model
             perturbed = perturbate(
                 sample.x,
                 num_samples=args.num_perturbations,
-                with_z=True,
+                with_z=False,
                 device=device,
             )
 
             for perturbed_x in perturbed:
                 focal_pred = predict_edges(focal_model, sample, perturbed_x, focal_model.threshold)
+                print(focal_pred)
                 contrastive_pred = predict_edges(contrastive_model, sample, perturbed_x, contrastive_model.threshold)
                 focal_flips += torch.abs(focal_pred - focal_base).float()
                 contrastive_flips += torch.abs(contrastive_pred - contrastive_base).float()
@@ -251,17 +264,16 @@ def stability_records(args, dataset, dataset_cls, focal_model, contrastive_model
         focal_flip_rate = focal_flips
         #focal_flip_rate = (focal_flips / max(1, args.num_perturbations)).detach().cpu().numpy()
         #contrastive_flip_rate = (contrastive_flips / max(1, args.num_perturbations)).detach().cpu().numpy()
-        gain = focal_flip_rate - contrastive_flip_rate
+        gain =  contrastive_flip_rate - focal_flip_rate
 
         src = sample.edge_index[:, 0]
         dst = sample.edge_index[:, 1]
         edge_x = ((sample.x[src, x_idx] + sample.x[dst, x_idx]) / 2).detach().cpu().numpy()
         edge_y = ((sample.x[src, y_idx] + sample.x[dst, y_idx]) / 2).detach().cpu().numpy()
-        edge_z = ((sample.x[src, z_idx] + sample.x[dst, z_idx]) / 2).detach().cpu().numpy()
         signal_mask = sample.PU_info[:, 1] if hasattr(sample, "PU_info") else None
 
-        append_records(records, "all", edge_x, edge_y, edge_z, gain, focal_flip_rate, contrastive_flip_rate, None)
-        append_records(records, "signal", edge_x, edge_y, edge_z, gain, focal_flip_rate, contrastive_flip_rate, signal_mask)
+        append_records(records, "all", edge_x, edge_y, gain, focal_flip_rate, contrastive_flip_rate, None)
+        append_records(records, "signal", edge_x, edge_y, gain, focal_flip_rate, contrastive_flip_rate, signal_mask)
 
     return concat_records(records)
 
@@ -291,212 +303,90 @@ def binned_mean(x, y, values, bins, x_range, y_range):
         weights=values,
     )
     counts, _, _ = np.histogram2d(x, y, bins=bins, range=[x_range, y_range])
-    #return np.ma.masked_where(counts.T == 0, weighted.T), x_edges, y_edges
+    return np.ma.masked_where(counts.T == 0, weighted.T), x_edges, y_edges
     with np.errstate(divide="ignore", invalid="ignore"):
         mean = weighted / counts
     return np.ma.masked_where(counts.T == 0, mean.T), x_edges, y_edges
 
-def plot_gain_heatmaps_combined(records, key, title, output_path, bins):
-    gain = records[key]["gain"]
 
-    finite_gain = gain[np.isfinite(gain)]
-    #vmax = np.max(np.abs(finite_gain))
-    #vmax = max(vmax, 1e-8)
-    vmax = float(np.nanpercentile(np.abs(finite_gain), 99.0)) if finite_gain.size else 0.05
-
-    cmap = LinearSegmentedColormap.from_list(
-        "poster_stability_gain_red_white_yellow",
-        [
-            (0.00, POSTER_RED),
-            (0.50, POSTER_WHITE),
-            (1.00, POSTER_YELLOW),
-        ],
-        N=256,
-    )
-    cmap.set_bad(POSTER_EMPTY)
-    norm = TwoSlopeNorm(vmin=-vmax, vcenter=0, vmax=vmax)
-    limits = symmetric_range(np.concatenate([records["all"]["x"]*1.3 , records["all"]["y"]]))
-    x = limits[1] - limits[0]
-    z = records["all"]["z"].max() + 5 - records["all"]["z"].min() + 10
-
-    #fig, axes = plt.subplots(1, 2, figsize=(10.8, 5.2), dpi=240)
-    fig = plt.figure(figsize=(10.8, 5.6), dpi=240, constrained_layout=True)
-    fig.patch.set_alpha(0.0)
-    gs = fig.add_gridspec(
-        1,
-        3,
-        width_ratios=[x/z, 1.0, 0.06],
-    )
-
-    axes = [
-        fig.add_subplot(gs[0, 0]),
-        fig.add_subplot(gs[0, 1]),
-    ]
-    cax = fig.add_subplot(gs[0, 2])
-
-    plot_configs = [
-        {
-            "ax": axes[0],
-            "x": records[key]["x"],
-            "y": records[key]["y"],
-            "x_range": symmetric_range(np.concatenate([records["all"]["x"]*1.3 , records["all"]["y"]])),
-            "y_range": symmetric_range(np.concatenate([records["all"]["x"], records["all"]["y"]])),
-            "xlabel": "Edge Midpoint x [cm]",
-            "ylabel": "Edge Midpoint y [cm]",
-            "aspect": 1.6,
-        },
-        {
-            "ax": axes[1],
-            "x": records[key]["z"],
-            "y": records[key]["y"],
-            "x_range": (records["all"]["z"].min() - 10, records["all"]["z"].max() + 5),
-            "y_range": symmetric_range(np.concatenate([records["all"]["x"], records["all"]["y"]])),
-            "xlabel": "Edge Midpoint z [cm]",
-            "aspect": 0.5,
-        },
-    ]
-
-    im = None
-
-    for cfg in plot_configs:
-        ax = cfg["ax"]
-        ax.set_facecolor("none")
-
-        heatmap, x_edges, y_edges = binned_mean(
-            cfg["x"],
-            cfg["y"],
-            gain,
-            bins,
-            cfg["x_range"],
-            cfg["y_range"],
-        )
-
-        im = ax.imshow(
-            heatmap,
-            origin="lower",
-            extent=(x_edges[0], x_edges[-1], y_edges[0], y_edges[-1]),
-            cmap=cmap,
-            norm=norm,
-            interpolation="nearest",
-        )
-
-        ax.set_xlabel(cfg["xlabel"], color=TEXT_COLOR, fontsize=18, fontweight="bold")
-        if "ylabel" in cfg:
-            ax.set_ylabel(cfg["ylabel"], color=TEXT_COLOR, fontsize=18, fontweight="bold")
-
-        ax.set_box_aspect(float(cfg["aspect"]))
-        ax.set_aspect("equal", adjustable="box")
-
-        ax.tick_params(colors=TEXT_COLOR, labelsize=16)
-
-        for label in ax.get_xticklabels() + ax.get_yticklabels():
-            label.set_fontweight("bold")
-
-        for spine in ax.spines.values():
-            spine.set_color(SPINE_COLOR)
-            spine.set_linewidth(1.3)
-
-        ax.grid(color=TEXT_COLOR, alpha=0.18, linewidth=0.6)
-
-    fig.suptitle(title, color=TEXT_COLOR, fontweight="bold", fontsize=22, y=1.02)
-
-    cbar = fig.colorbar(im, cax=cax)
-    cbar.set_label("Focal - Contrastive", color=TEXT_COLOR, fontsize=16, fontweight="bold")
-    cbar.ax.tick_params(colors=TEXT_COLOR, labelsize=15)
-
-    for label in cbar.ax.get_yticklabels():
-        label.set_fontweight("bold")
-
-    cbar.outline.set_edgecolor(SPINE_COLOR)
-    cbar.outline.set_linewidth(1.2)
-
-    fig.savefig(output_path, dpi=240, bbox_inches="tight", pad_inches=0.04, transparent=True)
-    plt.close(fig)
-
-
-def plot_gain_heatmap(records, key, title, output_path, bins, use_z=False):
+def plot_gain_heatmap(records, key, title, output_path, bins):
     x = records[key]["x"]
     y = records[key]["y"]
-    if use_z:
-       x = records[key]["z"] 
     gain = records[key]["gain"]
     focal = records[key]["focal_flip"]
     contrastive = records[key]["contrastive_flip"]
 
-    if not use_z:
-        x_range = symmetric_range(np.concatenate([records["all"]["x"], records["all"]["y"]]))
-        y_range = x_range
-    else:
-        y_range = symmetric_range(np.concatenate([records["all"]["y"], records["all"]["y"]]))
-        x_range = (records["all"]["z"].min()-5, records["all"]["z"].max()+5) 
-
+    x_range = symmetric_range(np.concatenate([records["all"]["x"], records["all"]["y"]]))
+    y_range = x_range
     heatmap, x_edges, y_edges = binned_mean(x, y, gain, bins, x_range, y_range)
 
     cmap = LinearSegmentedColormap.from_list(
-        "poster_stability_gain_red_white_yellow",
+        "poster_stability_gain",
         [
             (0.00, POSTER_RED),
-            (0.50, POSTER_WHITE),
-            (1.00, POSTER_YELLOW),
+            (0.50, POSTER_GRAY),
+            (0.75, POSTER_LIGHT_BLUE),
+            (1.00, POSTER_BLUE),
         ],
         N=256,
     )
-
-    cmap.set_bad(POSTER_EMPTY)
-
+    cmap.set_bad("#FFFFFF")
     finite_gain = gain[np.isfinite(gain)]
-    #vmax = np.max(np.abs(finite_gain)) 
-    vmax = float(np.nanpercentile(np.abs(finite_gain), 99.0)) if finite_gain.size else 0.05
-    #vmax = max(0.03, vmax)
-
-    if not use_z:
-        fig, ax = plt.subplots(figsize=(8.4, 5.2), dpi=240)
+    print(np.max(finite_gain))
+    if finite_gain.size:
+        vmax = float(np.nanpercentile(np.abs(finite_gain), 98.0))
     else:
-        fig, ax = plt.subplots(figsize=(5.4, 5.2), dpi=240)
+        vmax = 0.05
+    vmax = max(0.03, vmax)
 
-    fig.patch.set_alpha(0.0)
-    ax.set_facecolor("none")
+    mean_focal = float(np.nanmean(focal)) if focal.size else float("nan")
+    mean_contrastive = float(np.nanmean(contrastive)) if contrastive.size else float("nan")
+    mean_gain = float(np.nanmean(gain)) if gain.size else float("nan")
 
+    fig, ax = plt.subplots(figsize=(10.4, 5.2))
+    fig.patch.set_facecolor("white")
     norm = TwoSlopeNorm(vmin=-vmax, vcenter=0, vmax=vmax)
     im = ax.imshow(
         heatmap,
         origin="lower",
-        extent=(x_edges[0] * 1.5 - 20, x_edges[-1] * 1.5 + 20, y_edges[0] - 20, y_edges[-1] + 20),
+        extent=(x_edges[0]*2-20, x_edges[-1]*2+20, y_edges[0]-20, y_edges[-1]+20),
         cmap=cmap,
         norm=norm,
         interpolation="nearest",
     )
-
-    if not use_z:
-        ax.set_aspect("equal", adjustable="box")
-        ax.set_xlabel("Edge Midpoint x [cm]", color=TEXT_COLOR, fontsize=18, fontweight="bold")
-        ax.set_title(title, color=TEXT_COLOR, fontweight="bold", pad=12, fontsize=22)
-    else:
-        ax.set_xlabel("Edge Midpoint z [cm]", color=TEXT_COLOR, fontsize=18, fontweight="bold")
-    ax.set_ylabel("Edge Midpoint y [cm]", color=TEXT_COLOR, fontsize=18, fontweight="bold")
-
-    ax.tick_params(colors=TEXT_COLOR, labelsize=16)
-    for label in ax.get_xticklabels() + ax.get_yticklabels():
-        label.set_fontweight("bold")
-
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_xlabel("edge midpoint x [cm]", color=TEXT_COLOR, fontsize=12)
+    ax.set_ylabel("edge midpoint y [cm]", color=TEXT_COLOR, fontsize=12)
+    ax.set_title(title, fontweight="bold", pad=10, fontsize=14)
+    ax.tick_params(colors=TEXT_COLOR)
     for spine in ax.spines.values():
-        spine.set_color(SPINE_COLOR)
-        spine.set_linewidth(1.3)
+        spine.set_color("#A8B0B8")
 
-    ax.grid(color=TEXT_COLOR, alpha=0.18, linewidth=0.6)
+    summary = (
+        f"mean flip: focal {mean_focal:.3f}, "
+        f"contrastive {mean_contrastive:.3f}\n"
+        f"mean gain {mean_gain:+.3f}"
+    )
+    '''
+    ax.text(
+        0.02,
+        0.98,
+        summary,
+        transform=ax.transAxes,
+        va="top",
+        ha="left",
+        fontsize=9,
+        color=TEXT_COLOR,
+        bbox={"boxstyle": "round,pad=0.28", "facecolor": POSTER_GRAY, "edgecolor": "#CBD2D9"},
+    )
+    '''
 
-    cbar = fig.colorbar(im, ax=ax)
-    cbar.set_label("Focal - Contrastive", color=TEXT_COLOR, fontsize=16, fontweight="bold")
-    cbar.ax.tick_params(colors=TEXT_COLOR, labelsize=15)
-
-    for label in cbar.ax.get_yticklabels():
-        label.set_fontweight("bold")
-
-    cbar.outline.set_edgecolor(SPINE_COLOR)
-    cbar.outline.set_linewidth(1.2)
+    cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.03)
+    cbar.set_label("focal - contrastive distribution difference", fontsize=12)
+    cbar.ax.tick_params(labelsize=12)
 
     fig.tight_layout()
-    fig.savefig(output_path, dpi=240, bbox_inches="tight", pad_inches=0.04, transparent=True)
+    fig.savefig(output_path, dpi=240)
     plt.close(fig)
 
 
@@ -525,58 +415,113 @@ def write_summary(records, output_path, args, focal_checkpoint, contrastive_chec
     with open(output_path, "w", encoding="utf-8") as handle:
         json.dump(summary, handle, indent=2)
 
+def write_model_metadata(model_output_dir, args, history, threshold, val_f1, model_name):
+    metadata = {
+        "model": model_name,
+        "architecture": args.architecture,
+        "threshold": float(threshold),
+        "validation_weighted_edge_f1": float(val_f1),
+        "history": history,
+        "checkpoint": history.get("checkpoint"),
+    }
+    with open(osp.join(model_output_dir, "metadata.json"), "w", encoding="utf-8") as handle:
+        json.dump(metadata, handle, indent=2)
+
+
 
 def main():
     args = parse_args()
     device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
     paths = dummy_data_paths(args)
     os.makedirs(paths["stability"], exist_ok=True)
+    threshold = 0.6
 
     focal_checkpoint = args.focal_checkpoint or newest_checkpoint(paths["model"], "focal")
     contrastive_checkpoint = args.contrastive_checkpoint or newest_checkpoint(paths["model"], "contrastive")
 
     dataset, dataset_cls = load_test_dataset(args)
+    print_graph_statistics(dataset)
     sample = dataset[0]
     input_dim = len(dataset_cls.model_feature_keys)
     focal_model, _ = load_model(focal_checkpoint, sample, input_dim, device, args)
     contrastive_model, _ = load_model(contrastive_checkpoint, sample, input_dim, device, args)
+    all_metrics = {}
+    focal_loss = FocalLossLogits(alpha=0.2, gamma=2)
 
-    print(f"Using device: {device}")
-    print(f"Focal checkpoint: {focal_checkpoint}")
-    print(f"Contrastive checkpoint: {contrastive_checkpoint}")
+    baseline_metrics = evaluate_unlinked_reconstruction(dataset, DummyDataset.node_feature_dict, selection="signal")
+    all_metrics["unlinked_baseline"] = baseline_metrics
 
-    records = stability_records(args, dataset, dataset_cls, focal_model, contrastive_model, device)
-    plot_gain_heatmap(
-        records,
-        "all",
-        "Changes in Edge Classification",
-        osp.join(paths["stability"], "all_edge_stab.png"),
-        args.bins,
-    )
-    plot_gain_heatmap(
-        records,
-        "all",
-        "Changes in Edge Classification",
-        osp.join(paths["stability"], "all_edge_stab_z.png"),
-        args.bins,
-        use_z=True,
-    )
-    plot_gain_heatmaps_combined(
-        records,
-        "all",
-        "Changes in Edge Classification",
-        osp.join(paths["stability"], "all_edge_stability_combined.png"),
-        args.bins,
-    )
-    write_summary(
-        records,
-        osp.join(paths["stability"], "dummy_edge_stability_summary.json"),
-        args,
-        focal_checkpoint,
-        contrastive_checkpoint,
-    )
-    print(f"Saved stability plots to {paths['stability']}")
 
+    _, test_scores, test_labels, test_weights, _ = validate(
+        focal_model,
+        dataset,
+        10,
+        loss_obj=focal_loss,
+        weighted="raw_energy",
+        node_feature_dict=DummyDataset.node_feature_dict,
+    )
+    threshold, val_f1 = find_best_edge_threshold(test_scores, test_labels, test_weights)
+    focal_model.threshold = threshold
+    _, test_scores, test_labels, test_weights, _ = validate(
+        focal_model,
+        dataset,
+        10,
+        loss_obj=focal_loss,
+        weighted="raw_energy",
+        node_feature_dict=DummyDataset.node_feature_dict,
+    )
+
+    metrics = edge_classification_metrics(test_scores, test_labels, test_weights, threshold)
+    metrics.update(
+        evaluate_model_reconstruction(
+            focal_model,
+            dataset,
+            DummyDataset.node_feature_dict,
+            threshold=0.6,
+            selection="signal",
+        )
+    )
+    all_metrics["focal"] = metrics
+
+    _, test_scores, test_labels, test_weights, _ = validate(
+        contrastive_model,
+        dataset,
+        10,
+        loss_obj=focal_loss,
+        weighted="raw_energy",
+        node_feature_dict=DummyDataset.node_feature_dict,
+    )
+    threshold, val_f1 = find_best_edge_threshold(test_scores, test_labels, test_weights)
+    contrastive_model.threshold = threshold
+    _, test_scores, test_labels, test_weights, _ = validate(
+        contrastive_model,
+        dataset,
+        10,
+        loss_obj=focal_loss,
+        weighted="raw_energy",
+        node_feature_dict=DummyDataset.node_feature_dict,
+    )
+    metrics = edge_classification_metrics(test_scores, test_labels, test_weights, threshold)
+    metrics.update(
+        evaluate_model_reconstruction(
+            contrastive_model,
+            dataset,
+            DummyDataset.node_feature_dict,
+            threshold=0.6,
+            selection="signal",
+        )
+    )
+    all_metrics["contrastive"] = metrics
+
+    plot_metric_bars(all_metrics, paths["model"], title="Held-out reconstruction metrics")
+    write_metric_csv(all_metrics, paths["model"])
+    with open(osp.join(paths["model"], "metrics.json"), "w", encoding="utf-8") as handle:
+        json.dump(all_metrics, handle, indent=2)
+
+    print(json.dumps(all_metrics, indent=2))
+    print(f"Saved experiment outputs to {paths['model']}")
+    print(f"Dummy data is stored under {paths['data']}")
 
 if __name__ == "__main__":
     main()
+ 

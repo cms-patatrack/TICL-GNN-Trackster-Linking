@@ -21,6 +21,15 @@ DEFAULT_BASE_FOLDER = osp.abspath(osp.join(REPO_ROOT, "..", "data"))
 DEFAULT_PLOT_ASSOCIATIONS = osp.expanduser(
     "~/Documents/PhD/complex/awkward_complex/datasets/cern/plot_associations.py"
 )
+POSTER_WHITE = "#FFFFFF"
+POSTER_GREY = "#C9D4E8"
+POSTER_MUTED = "#9FB2D8"
+
+CMS_YELLOW = "#61C5D3"
+CMS_ORANGE = "#E15E32"
+CMS_RED = "#6E2466"
+CMS_SOFT_RED = "#1C446B"
+CMS_DARK_RED = "#0033A0"
 
 
 def parse_args():
@@ -93,11 +102,48 @@ def event_to_features_and_labels(event, signal_only=False):
     return torch.as_tensor(features), y, signal_labels, is_pu
 
 
-def label_colors(associations, cmap_name="tab20"):
+
+def hex_to_rgba(hex_color, alpha=1.0):
+    hex_color = hex_color.lstrip("#")
+    return np.array([int(hex_color[i:i + 2], 16) / 255.0 for i in (0, 2, 4)] + [alpha], dtype=float)
+
+
+def blend_rgba(c1, c2, t):
+    rgb = (1.0 - t) * c1[:3] + t * c2[:3]
+    alpha = c1[3]
+    return tuple(np.concatenate([rgb, [alpha]]))
+
+
+def make_shades(base_hex, n_shades=4, alpha=0.82):
+    base = hex_to_rgba(base_hex, alpha)
+    white = np.array([1.0, 1.0, 1.0, alpha])
+    black = np.array([0.0, 0.0, 0.0, alpha])
+
+    if n_shades == 1:
+        return [tuple(base)]
+
+    ts = np.linspace(0.22, 0.0, (n_shades + 1) // 2)
+    lighter = [blend_rgba(base, white, t) for t in ts[::-1]]
+
+    ts = np.linspace(0.08, 0.28, n_shades // 2)
+    darker = [blend_rgba(base, black, t) for t in ts]
+
+    return lighter + darker
+
+
+def label_colors(associations, n_shades_per_base=4):
     valid_labels = sorted(set(np.concatenate([np.asarray(a).ravel() for a in associations])) - {-1})
-    base_cmap = plt.get_cmap(cmap_name, max(len(valid_labels), 1))
-    label_to_color = {lab: base_cmap(i) for i, lab in enumerate(valid_labels)}
-    label_to_color[-1] = (0.58, 0.58, 0.58, 0.38)
+
+    base_colors = [CMS_YELLOW, CMS_ORANGE, CMS_RED, CMS_SOFT_RED]
+    palette = []
+    for base in base_colors:
+        palette.extend(make_shades(base, n_shades=n_shades_per_base, alpha=0.82))
+
+    label_to_color = {}
+    for i, lab in enumerate(valid_labels):
+        label_to_color[lab] = palette[i % len(palette)]
+
+    label_to_color[-1] = tuple(hex_to_rgba(POSTER_GREY, alpha=0.22))
     return label_to_color
 
 
@@ -108,33 +154,78 @@ def plot_poster_associations(plot_associations, features, associations, names, o
     y = y.numpy()
     z = features[:, 2].numpy()
     label_to_color = label_colors(associations)
+    with plt.rc_context(
+        {
+            "axes.edgecolor": POSTER_WHITE,
+            "xtick.color": POSTER_WHITE,
+            "ytick.color": POSTER_WHITE,
+            "text.color": POSTER_WHITE,
+            "grid.color": POSTER_WHITE,
+        }
+    ):
 
-    fig = plt.figure(figsize=(10.5, 4.7), constrained_layout=True)
-    fig.patch.set_alpha(0.0)
+        fig = plt.figure(figsize=(10.5, 4.7), constrained_layout=True)
+        fig.patch.set_alpha(0.0)
 
-    for idx, (assoc, name) in enumerate(zip(associations, names)):
-        ax = fig.add_subplot(1, len(associations), idx + 1, projection="3d")
-        labels = np.asarray(assoc)
-        colors = np.asarray([label_to_color[int(label)] for label in labels])
-        sizes = np.where(labels == -1, 12, 26)
+        for idx, (assoc, name) in enumerate(zip(associations, names)):
+            ax = fig.add_subplot(1, len(associations), idx + 1, projection="3d")
+            labels = np.asarray(assoc)
+            colors = np.asarray([label_to_color[int(label)] for label in labels])
+            sizes = np.where(labels == -1, 12, 26)
 
-        ax.scatter(z, y, x, c=colors, s=sizes, linewidth=0, depthshade=False)
-        ax.view_init(elev=22, azim=-64)
-        ax.set_xlabel("z [cm]", labelpad=8)
-        ax.set_ylabel("y [cm]", labelpad=8)
-        ax.set_zlabel("x [cm]", labelpad=8)
-        ax.set_title(name, pad=12, fontsize=17)
-        ax.grid(True, alpha=0.22)
-        ax.xaxis.pane.set_alpha(0.0)
-        ax.yaxis.pane.set_alpha(0.0)
-        ax.zaxis.pane.set_alpha(0.0)
-        ax.tick_params(axis="both", which="major", labelsize=10, pad=2)
+            #ax.scatter(z, y, x, c=colors, s=sizes, linewidth=0, depthshade=False)
+            ax.scatter(
+                z,
+                y,
+                x,
+                c=colors,
+                s=sizes,
+                linewidth=0,
+                depthshade=False,
+            )
 
-    png_path = osp.join(output_folder, file_suffix + "_poster_assoc.png")
-    pdf_path = osp.join(output_folder, file_suffix + "_poster_assoc.pdf")
-    fig.savefig(png_path, dpi=450, bbox_inches="tight", transparent=True)
-    fig.savefig(pdf_path, bbox_inches="tight", transparent=True)
-    plt.close(fig)
+            ax.view_init(elev=22, azim=-64)
+
+            ax.set_xlabel("z [cm]", labelpad=12, color=POSTER_WHITE, fontweight="bold")
+            ax.set_ylabel("y [cm]", labelpad=12, color=POSTER_WHITE, fontweight="bold")
+            ax.set_zlabel("x [cm]", labelpad=12, color=POSTER_WHITE, fontweight="bold")
+
+            ax.tick_params(axis="both", which="major", labelsize=12, pad=2, colors=POSTER_WHITE)
+
+            for tick in ax.get_xticklabels() + ax.get_yticklabels() + ax.get_zticklabels():
+                tick.set_fontweight("bold")
+
+            ax.set_facecolor("none")
+
+            ax.xaxis.pane.fill = False
+            ax.yaxis.pane.fill = False
+            ax.zaxis.pane.fill = False
+
+            ax.xaxis.pane.set_edgecolor((1, 1, 1, 0.35))
+            ax.yaxis.pane.set_edgecolor((1, 1, 1, 0.35))
+            ax.zaxis.pane.set_edgecolor((1, 1, 1, 0.35))
+
+            ax.grid(True, alpha=0.20)
+
+            ax.grid(True, alpha=0.18)
+            '''
+            ax.view_init(elev=22, azim=-64)
+            ax.set_xlabel("z [cm]", labelpad=12, color="white", fontweight="bold")
+            ax.set_ylabel("y [cm]", labelpad=12, color="white", fontweight="bold")
+            ax.set_zlabel("x [cm]", labelpad=12, color="white", fontweight="bold")
+            #ax.set_title(name, fontsize=14, color="white", fontweight="bold")
+            ax.grid(True, alpha=0.22)
+            ax.xaxis.pane.set_alpha(0.0)
+            ax.yaxis.pane.set_alpha(0.0)
+            ax.zaxis.pane.set_alpha(0.0)
+            ax.tick_params(axis="both", which="major", labelsize=12, pad=2, color="white", fontweight="bold")
+            '''
+
+        png_path = osp.join(output_folder, file_suffix + "_poster_assoc.png")
+        pdf_path = osp.join(output_folder, file_suffix + "_poster_assoc.pdf")
+        fig.savefig(png_path, dpi=450, bbox_inches="tight", transparent=True)
+        fig.savefig(pdf_path, bbox_inches="tight", transparent=True)
+        plt.close(fig)
     return png_path, pdf_path
 
 

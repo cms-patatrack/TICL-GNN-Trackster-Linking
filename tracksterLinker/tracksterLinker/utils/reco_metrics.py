@@ -253,10 +253,10 @@ def reconstruction_metrics_from_components(
     energies,
     is_pu=None,
     selection="signal",
-    containment_threshold=0.40,
-    association_iou_threshold=0.50,
+    containment_threshold=0.20,
+    association_iou_threshold=0.20,
     fake_purity_threshold=0.20,
-    split_fraction_threshold=0.10,
+    split_fraction_threshold=0.20,
     eps=1e-12,
 ):
     labels = labels.detach().cpu().long().reshape(-1)

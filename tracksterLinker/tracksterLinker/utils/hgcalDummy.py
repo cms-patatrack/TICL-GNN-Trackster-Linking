@@ -41,9 +41,25 @@ FEATURE_KEYS = [
     "time",
 ]
 
+LAYER_CLUSTER_KEYS = [
+    "vertices_indexes",
+    "vertices_x",
+    "vertices_y",
+    "vertices_z",
+    "vertices_time",
+    "vertices_timeErr",
+    "vertices_energy",
+    "vertices_correctedEnergy",
+    "vertices_correctedEnergyUncertainty",
+    "vertices_multiplicity",
+    "vertices_layer_id",
+    "vertices",
+]
+
 HGCAL_DENSITY_VOLUME = 2 * (3.0 - 1.5) * (2 * 47)
 HGCAL_Z_MIN_CM = 322.0
 HGCAL_Z_MAX_CM = 520.0
+HGCAL_LAYERS = 47
 
 SHOWER_STYLES = {
     "straight": {
@@ -425,7 +441,115 @@ def _sample_time(rng, depth_frac, raw_energy, style_name, is_pu, time0):
     return float(time0 + rng.normal(0.0, 0.12) + depth_frac * rng.normal(0.04, 0.08))
 
 
-def _make_tracksters_for_shower(rng, axis, energy, pdg_id, sim_id, is_pu):
+def _layer_id_from_z_abs(z_abs):
+    layer = np.rint(1.0 + (z_abs - HGCAL_Z_MIN_CM) / (HGCAL_Z_MAX_CM - HGCAL_Z_MIN_CM) * (HGCAL_LAYERS - 1))
+    return np.clip(layer, 1, HGCAL_LAYERS).astype(np.int64)
+
+
+def _z_abs_from_layer_id(layer_id):
+    return HGCAL_Z_MIN_CM + (np.asarray(layer_id, dtype=float) - 1.0) / (HGCAL_LAYERS - 1) * (HGCAL_Z_MAX_CM - HGCAL_Z_MIN_CM)
+
+
+def _split_integer_total(rng, total, n_items):
+    n_items = int(max(1, n_items))
+    total = int(max(n_items, total))
+    if n_items == 1:
+        return np.asarray([total], dtype=np.int64)
+    weights = rng.dirichlet(np.full(n_items, 0.75))
+    return rng.multinomial(total - n_items, weights).astype(np.int64) + 1
+
+
+def _sample_layer_clusters(
+    rng,
+    start_index,
+    eta,
+    phi,
+    z_abs,
+    z_sign,
+    z_min,
+    z_max,
+    raw_energy,
+    num_lcs,
+    num_hits,
+    time,
+    style_name,
+    is_pu,
+):
+    num_lcs = int(max(1, num_lcs))
+    style = SHOWER_STYLES[style_name]
+    z_low = min(abs(z_min), abs(z_max), z_abs)
+    z_high = max(abs(z_min), abs(z_max), z_abs)
+
+    if num_lcs == 1 or z_high <= z_low:
+        lc_z_abs = np.asarray([z_abs], dtype=np.float64)
+    else:
+        if style_name == "multi_shower_tree":
+            cores = rng.choice([0.18, 0.48, 0.78], size=num_lcs, p=[0.44, 0.36, 0.20])
+            quantiles = np.clip(cores + rng.normal(0.0, 0.09, size=num_lcs), 0.0, 1.0)
+        elif style_name in {"broad_tree", "large_shower"}:
+            quantiles = rng.beta(1.15, 1.55, size=num_lcs)
+        elif style_name == "straight":
+            quantiles = np.linspace(0.08, 0.92, num_lcs) + rng.normal(0.0, 0.025, size=num_lcs)
+        else:
+            quantiles = rng.beta(1.25, 1.45, size=num_lcs)
+        lc_z_abs = z_low + np.clip(quantiles, 0.0, 1.0) * (z_high - z_low)
+
+    layer_id = _layer_id_from_z_abs(lc_z_abs)
+    lc_z_abs = _z_abs_from_layer_id(layer_id) + rng.normal(0.0, 0.22, size=num_lcs)
+    lc_z_abs = np.clip(lc_z_abs, HGCAL_Z_MIN_CM, HGCAL_Z_MAX_CM)
+    lc_z = z_sign * lc_z_abs
+
+    lc_depth = (lc_z_abs - HGCAL_Z_MIN_CM) / (HGCAL_Z_MAX_CM - HGCAL_Z_MIN_CM)
+    lateral_scale = (0.0018 + 0.00023 * math.sqrt(num_lcs)) * style["width"] * (0.8 + 1.8 * lc_depth)
+    if is_pu:
+        lateral_scale *= 1.35
+    eta_jitter = rng.normal(0.0, lateral_scale, size=num_lcs)
+    phi_jitter = rng.normal(0.0, lateral_scale, size=num_lcs)
+    if style_name in {"broad_tree", "large_shower", "multi_shower_tree"}:
+        eta_jitter += rng.standard_t(df=4, size=num_lcs) * lateral_scale * 0.55
+        phi_jitter += rng.standard_t(df=4, size=num_lcs) * lateral_scale * 0.55
+
+    lc_eta_abs = np.clip(abs(eta) + eta_jitter, 1.5, 3.0)
+    lc_eta = z_sign * lc_eta_abs
+    lc_phi = _wrap_phi(phi + phi_jitter)
+    positions = np.asarray([_eta_phi_z_to_xyz(e, p, z, z_sign) for e, p, z in zip(lc_eta, lc_phi, lc_z_abs)], dtype=np.float64)
+
+    depth_profile = np.exp(-1.25 * lc_depth) + 0.08
+    if style_name == "large_shower":
+        depth_profile += 0.42 * np.exp(-0.5 * ((lc_depth - 0.16) / 0.08) ** 2)
+    elif style_name == "multi_shower_tree":
+        depth_profile += 0.28 * np.exp(-0.5 * ((lc_depth - 0.24) / 0.12) ** 2)
+    energy_weights = rng.dirichlet(0.15 + 4.0 * depth_profile / max(np.mean(depth_profile), 1e-6))
+    lc_energy = np.clip(raw_energy * energy_weights * rng.lognormal(0.0, 0.08, size=num_lcs), 0.001, None)
+    lc_energy *= raw_energy / max(np.sum(lc_energy), 1e-6)
+    lc_corrected = lc_energy * rng.lognormal(0.015, 0.045, size=num_lcs)
+    lc_uncertainty = lc_corrected * rng.uniform(0.035, 0.18 if is_pu else 0.12, size=num_lcs)
+    lc_multiplicity = _split_integer_total(rng, num_hits, num_lcs)
+
+    if time < -90.0:
+        lc_time = np.where(rng.random(num_lcs) < 0.82, -99.0, rng.normal(0.0 if not is_pu else 4.5, 4.0 if is_pu else 0.25, size=num_lcs))
+    else:
+        lc_time = time + rng.normal(0.0, 0.22 if not is_pu else 3.0, size=num_lcs)
+        lc_time[rng.random(num_lcs) < (0.08 if not is_pu else 0.20)] = -99.0
+    lc_time_err = np.where(lc_time < -90.0, -1.0, rng.uniform(0.035, 0.22 if not is_pu else 1.5, size=num_lcs))
+
+    return {
+        "vertices_indexes": np.arange(start_index, start_index + num_lcs, dtype=np.int64),
+        "vertices_x": positions[:, 0].astype(np.float32),
+        "vertices_y": positions[:, 1].astype(np.float32),
+        "vertices_z": lc_z.astype(np.float32),
+        "vertices_time": lc_time.astype(np.float32),
+        "vertices_timeErr": lc_time_err.astype(np.float32),
+        "vertices_energy": lc_energy.astype(np.float32),
+        "vertices_correctedEnergy": lc_corrected.astype(np.float32),
+        "vertices_correctedEnergyUncertainty": lc_uncertainty.astype(np.float32),
+        "vertices_multiplicity": lc_multiplicity.astype(np.int64),
+        "vertices_layer_id": layer_id.astype(np.int64),
+        "vertices": positions.astype(np.float32),
+    }
+
+
+def _make_tracksters_for_shower(rng, axis, energy, pdg_id, sim_id, is_pu, first_layer_cluster_id=0):
     style_name = axis.get("style_name") or _sample_shower_style(rng, pdg_id, is_pu)
     n_fragments = _fragment_count(rng, energy, pdg_id, is_pu, style_name)
     fractions = _energy_fractions(rng, n_fragments, style_name)
@@ -434,6 +558,8 @@ def _make_tracksters_for_shower(rng, axis, energy, pdg_id, sim_id, is_pu):
     rows = []
     labels = []
     pu_flags = []
+    layer_clusters = []
+    next_layer_cluster_id = first_layer_cluster_id
 
     abs_pdg = abs(int(pdg_id))
     style = SHOWER_STYLES[style_name]
@@ -497,6 +623,25 @@ def _make_tracksters_for_shower(rng, axis, energy, pdg_id, sim_id, is_pu):
         z_min = min(z_a, z_b)
         z_max = max(z_a, z_b)
         time = _sample_time(rng, depth_frac, raw_energy, style_name, is_pu, time0)
+        layer_cluster = _sample_layer_clusters(
+            rng,
+            next_layer_cluster_id,
+            eta,
+            phi,
+            z_abs,
+            axis["z_sign"],
+            z_min,
+            z_max,
+            raw_energy,
+            num_lcs,
+            num_hits,
+            time,
+            style_name,
+            is_pu,
+        )
+        next_layer_cluster_id += num_lcs
+        z_min = float(np.min(layer_cluster["vertices_z"]))
+        z_max = float(np.max(layer_cluster["vertices_z"]))
 
         rows.append(
             [
@@ -533,8 +678,9 @@ def _make_tracksters_for_shower(rng, axis, energy, pdg_id, sim_id, is_pu):
         )
         labels.append(sim_id)
         pu_flags.append(int(is_pu))
+        layer_clusters.append(layer_cluster)
 
-    return rows, labels, pu_flags
+    return rows, labels, pu_flags, layer_clusters, next_layer_cluster_id
 
 
 def _make_activity_centers(rng):
@@ -585,12 +731,23 @@ def generate_event(rng, signal_mean=20.0, pu_mean=200.0, close_pair_fraction=0.8
     rows = []
     labels = []
     is_pu = []
+    layer_clusters = []
+    next_layer_cluster_id = 0
     for sim_id, (axis, pdg_id, pu_flag) in enumerate(zip(axes, pdgs, pu_flags)):
         energy = _sample_energy(rng, axis, is_pu=pu_flag)
-        shower_rows, shower_labels, shower_pu = _make_tracksters_for_shower(rng, axis, energy, pdg_id, sim_id, pu_flag)
+        shower_rows, shower_labels, shower_pu, shower_layer_clusters, next_layer_cluster_id = _make_tracksters_for_shower(
+            rng,
+            axis,
+            energy,
+            pdg_id,
+            sim_id,
+            pu_flag,
+            first_layer_cluster_id=next_layer_cluster_id,
+        )
         rows.extend(shower_rows)
         labels.extend(shower_labels)
         is_pu.extend(shower_pu)
+        layer_clusters.extend(shower_layer_clusters)
 
     rows = np.asarray(rows, dtype=np.float32)
     labels = np.asarray(labels, dtype=np.int64)
@@ -602,10 +759,13 @@ def generate_event(rng, signal_mean=20.0, pu_mean=200.0, close_pair_fraction=0.8
     rows = rows[order]
     labels = labels[order]
     is_pu = is_pu[order]
+    layer_clusters = [layer_clusters[idx] for idx in order]
     trackster_density = len(rows) / HGCAL_DENSITY_VOLUME
     rows[:, FEATURE_KEYS.index("trackster_density")] = trackster_density
 
     event = {name: rows[:, idx] for idx, name in enumerate(FEATURE_KEYS)}
+    for name in LAYER_CLUSTER_KEYS:
+        event[name] = [cluster[name] for cluster in layer_clusters]
     event["y"] = labels
     event["isPU"] = is_pu
     return event
@@ -649,12 +809,14 @@ def write_dataset(output_dir, config: HGCALLikeDummyConfig):
 
     metadata = asdict(config)
     metadata["feature_keys"] = FEATURE_KEYS
+    metadata["layer_cluster_keys"] = LAYER_CLUSTER_KEYS
     metadata["notes"] = [
         "Synthetic public dummy data; no CMS event content is copied.",
         "Ranges follow the thesis baseline: HGCAL eta 1.5-3.0, full phi, 47 layers/endcap density convention.",
         "Default topology has about 20 signal shower systems embedded in about 200 overlapping PU shower systems.",
         "Signal showers cycle through five archetypes: straight, curved, broad tree, large shower, and multi-shower tree.",
         "Depths are tuned to the prepared 20-pion 200-PU ROOT sample: a strong HGCAL-front peak near 325-340 cm with a sparse tail toward 500 cm.",
+        "Each trackster carries nested layer-cluster vertices with positions, energies, times, uncertainties, multiplicities, and layer IDs.",
         "Shower fragments include depth-dependent energy, LC, and hit degradation, branch splitting, heavy-tailed angular scatter, broad PU timing, and invalid time markers.",
     ]
     with open(osp.join(output_dir, "metadata.json"), "w", encoding="utf-8") as handle:
@@ -672,6 +834,9 @@ def summarise_parquet_files(files: Sequence[str]) -> Dict[str, float]:
     num_lcs = []
     num_hits = []
     invalid_times = []
+    n_layer_clusters = []
+    layer_cluster_energies = []
+    layer_cluster_invalid_times = []
     for file_name in files:
         data = ak.from_parquet(file_name)
         for event in data:
@@ -687,6 +852,11 @@ def summarise_parquet_files(files: Sequence[str]) -> Dict[str, float]:
             num_lcs.extend(np.asarray(event["num_LCs"], dtype=float).tolist())
             num_hits.extend(np.asarray(event["num_hits"], dtype=float).tolist())
             invalid_times.extend((np.asarray(event["time"], dtype=float) < -90.0).tolist())
+            if "vertices_x" in event.fields:
+                layer_counts = ak.to_numpy(ak.num(event["vertices_x"], axis=1))
+                n_layer_clusters.append(int(np.sum(layer_counts)))
+                layer_cluster_energies.extend(ak.to_numpy(ak.flatten(event["vertices_energy"], axis=None)).astype(float).tolist())
+                layer_cluster_invalid_times.extend((ak.to_numpy(ak.flatten(event["vertices_time"], axis=None)).astype(float) < -90.0).tolist())
 
     if n_events == 0:
         return {}
@@ -709,4 +879,8 @@ def summarise_parquet_files(files: Sequence[str]) -> Dict[str, float]:
         "num_hits_median": float(np.median(num_hits)),
         "num_hits_p95": float(np.percentile(num_hits, 95)),
         "invalid_time_fraction": float(np.mean(invalid_times)),
+        "layer_clusters_mean": float(np.mean(n_layer_clusters)) if n_layer_clusters else 0.0,
+        "layer_cluster_energy_median": float(np.median(layer_cluster_energies)) if layer_cluster_energies else 0.0,
+        "layer_cluster_energy_p95": float(np.percentile(layer_cluster_energies, 95)) if layer_cluster_energies else 0.0,
+        "layer_cluster_invalid_time_fraction": float(np.mean(layer_cluster_invalid_times)) if layer_cluster_invalid_times else 0.0,
     }
