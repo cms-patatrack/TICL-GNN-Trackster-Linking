@@ -5,9 +5,7 @@ from glob import glob
 import uproot as uproot
 import awkward as ak
 import numpy as np
-import numpy as cp
 
-import joblib
 from tqdm import tqdm
 
 import torch
@@ -17,18 +15,6 @@ from tracksterLinker.utils.graphUtils import build_ticl_graph
 from tracksterLinker.utils.dataUtils import *
 
 from concurrent.futures import ProcessPoolExecutor, as_completed
-
-
-def _file_sort_key(path):
-    name = osp.splitext(osp.basename(path))[0]
-    try:
-        return int(name.split("_")[-1])
-    except ValueError:
-        return name
-
-
-def _sorted_basenames(pattern):
-    return [osp.basename(path) for path in sorted(glob(pattern), key=_file_sort_key)]
 
 
 def load_branch_with_highest_cycle(file, branch_name):
@@ -78,10 +64,11 @@ def download_event(id, file, raw_dir):
     node_feature_keys_before = ["barycenter_x", "barycenter_y", "barycenter_z", "barycenter_eta", "barycenter_phi", "eVector0_x",
                                 "eVector0_y", "eVector0_z",  "EV1", "EV2", "EV3", "sigmaPCA1", "sigmaPCA2", "sigmaPCA3", "raw_energy", "raw_em_energy", "time"]
     data = alltracksters.arrays(node_feature_keys_before)
+    if "isPU" in alltracksters_array.fields:
+        data["isPU"] = alltracksters_array["isPU"]
 
-    # conatenate all axes of vertices
-    data["vertices"] = ak.concatenate([alltracksters_array["vertices_x"][:, :, :, cp.newaxis], alltracksters_array["vertices_y"]
-                                       [:, :, :, cp.newaxis], alltracksters_array["vertices_z"][:, :, :, cp.newaxis]], axis=-1)
+    data["vertices"] = ak.concatenate([alltracksters_array["vertices_x"][:, :, :, np.newaxis], alltracksters_array["vertices_y"]
+                                       [:, :, :, np.newaxis], alltracksters_array["vertices_z"][:, :, :, np.newaxis]], axis=-1)
 
     data["num_LCs"], data["num_hits"], data["length"] = calc_trackster_size(alltracksters_array, allclusters_array)
     data["z_min"] = ak.min(alltracksters_array["vertices_z"], axis=2)
@@ -113,8 +100,9 @@ def download_event(id, file, raw_dir):
     torch.save(data, osp.join(raw_dir, f'data_id_{id}.pt'))
 
 
-def process_event(idx, event, model_feature_keys, node_feature_dict, processed_dir, skeleton_features):
-    import cupy as cp
+def process_event(idx, event, model_feature_keys, node_feature_dict, processed_dir, skeleton_features, device=torch.device("cpu")):
+    device = processing_device(device)
+    xp = get_array_module(prefer_cupy=device.type == "cuda")
     nTracksters = len(event["barycenter_x"])
 
     # Skip if not multiple tracksters
@@ -122,7 +110,7 @@ def process_event(idx, event, model_feature_keys, node_feature_dict, processed_d
         return None, None
 
     # build feature list
-    features = cp.stack([awkward_to_cupy(event[field]) for field in model_feature_keys], axis=1)
+    features = xp.stack([awkward_to_array(event[field], xp=xp) for field in model_feature_keys], axis=1)
 
     # Create base graph from geometrical graph = [[], []]
     targets = ak.ravel(event.outer)
@@ -130,16 +118,16 @@ def process_event(idx, event, model_feature_keys, node_feature_dict, processed_d
     sources = ak.broadcast_arrays(sources, event.outer)[0]
     sources = ak.ravel(sources)
 
-    edges = cp.transpose(cp.stack([awkward_to_cupy(targets, dtype=cp.int64), awkward_to_cupy(sources, dtype=cp.int64)]))
+    edges = xp.transpose(xp.stack([awkward_to_array(targets, dtype=xp.int64, xp=xp), awkward_to_array(sources, dtype=xp.int64, xp=xp)]))
     if (edges.shape[0] < 2):
         return None, None
 
     if skeleton_features:
-        edge_features = cp.zeros((len(edges[:, 0]), 7), dtype='f')
+        edge_features = xp.zeros((len(edges[:, 0]), 7), dtype='f')
 
         edge_features[:, 5], edge_features[:, 6] = calc_min_max_skeleton_dist(nTracksters, edges, event["vertices"])
     else:
-        edge_features = cp.zeros((len(edges[:, 0]), 5), dtype='f')
+        edge_features = xp.zeros((len(edges[:, 0]), 5), dtype='f')
     edge_features[:, 0] = calc_edge_difference(edges, features, node_feature_dict, key="raw_energy")
     edge_features[:, 1] = calc_edge_difference(edges, features, node_feature_dict, key="barycenter_z")
     edge_features[:, 2] = calc_transverse_plane_separation(edges, features, node_feature_dict)
@@ -147,16 +135,27 @@ def process_event(idx, event, model_feature_keys, node_feature_dict, processed_d
     edge_features[:, 4] = calc_edge_difference(edges, features, node_feature_dict, key="time")
 
     y = calc_group_score(edges, event.y, event.score, event.shared_e, event.raw_energy)
+    if "isPU" in event.fields:
+        isPU = awkward_to_array(event["isPU"], dtype=xp.int64, xp=xp)
+    else:
+        isPU = xp.zeros(nTracksters, dtype=xp.int64)
+    cross_pu_edges = cross_PU(isPU, edges)
+    signal_edges = mask_PU(isPU, edges, PU=False)
+    pu_edges = mask_PU(isPU, edges, PU=True)
+    y[cross_pu_edges | pu_edges] = 0
+    PU_info = xp.stack([cross_pu_edges, signal_edges, pu_edges], axis=1)
 
     # Read data from `raw_path`.
     data = Data(
-        x=torch.utils.dlpack.from_dlpack(features.toDlpack()).float(),
+        x=array_to_tensor(features, device).float(),
         num_nodes=nTracksters, 
-        edge_index=torch.utils.dlpack.from_dlpack(edges.toDlpack()).long(),
-        edge_features=torch.utils.dlpack.from_dlpack(edge_features.toDlpack()).float(),
-        y=torch.utils.dlpack.from_dlpack(y.toDlpack()).float(),
-        cluster=ak.to_torch(event.y),
-        roots=ak.to_torch(event.roots))
+        edge_index=array_to_tensor(edges, device).long(),
+        edge_features=array_to_tensor(edge_features, device).float(),
+        y=array_to_tensor(y, device).float(),
+        cluster=ak.to_torch(event.y).to(device),
+        roots=ak.to_torch(event.roots).to(device),
+        isPU=array_to_tensor(isPU, device).int(),
+        PU_info=array_to_tensor(PU_info, device).bool())
 
     torch.save(data, osp.join(processed_dir, f'data_{idx}.pt'))
     return torch.max(torch.abs(data.x), axis=0).values, torch.max(data.edge_features, axis=0).values
@@ -171,10 +170,11 @@ class GNNDataset(Dataset):
 
     # Skeleton Features computional intensive -> Turn off if not needed
     def __init__(self, root, histo_path, transform=None, test=False, skeleton_features=False, pre_transform=None, pre_filter=None, edge_scaler=None, node_scaler=None,
-                 num_workers=24, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
-        self.test = test
+                 num_workers=24, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'), split=None):
+        self.split = split or ("test" if test else "train")
+        self.test = test if split is None else self.split != "train"
         self.skeleton_features = skeleton_features
-        self.device = device
+        self.device = processing_device(device)
         self.num_workers = num_workers
 
         self.histo_path = histo_path
@@ -201,53 +201,62 @@ class GNNDataset(Dataset):
 
     @property
     def raw_data_paths(self):
-        return [osp.join(self.raw_dir, name) for name in _sorted_basenames(f"{self.raw_dir}/data_id_*.pt")]
+        return [osp.join(self.raw_dir, name) for name in sorted_basenames(f"{self.raw_dir}/data_id_*.pt")]
 
     @property
     def processed_data_paths(self):
-        return [osp.join(self.processed_dir, name) for name in _sorted_basenames(f"{self.processed_dir}/data_*.pt")]
+        return [osp.join(self.processed_dir, name) for name in sorted_basenames(f"{self.processed_dir}/data_*.pt")]
 
     def download(self):
-        if (self.test):
-            files = sorted(glob(f"{self.histo_path}/test/*.root"))
-        else:
-            files = sorted(glob(f"{self.histo_path}/train/*.root"))
+        files = sorted(glob(f"{self.histo_path}/{self.split}/*.root"))
 
         with tqdm(total=len(files)) as pbar:
-            with ProcessPoolExecutor(max_workers=self.num_workers) as executor:
-                futures = [executor.submit(download_event, id, files[id], self.raw_dir) for id in range(len(files))]
-
-                for future in as_completed(futures):
-                    future.result()
+            if self.num_workers <= 1:
+                for id, file in enumerate(files):
+                    download_event(id, file, self.raw_dir)
                     pbar.update()
-        torch.save({"test": self.test, "files": len(files)}, osp.join(self.raw_dir, "DONE"))
+            else:
+                with ProcessPoolExecutor(max_workers=self.num_workers) as executor:
+                    futures = [executor.submit(download_event, id, files[id], self.raw_dir) for id in range(len(files))]
+
+                    for future in as_completed(futures):
+                        future.result()
+                        pbar.update()
+        torch.save({"split": self.split, "test": self.test, "files": len(files)}, osp.join(self.raw_dir, "DONE"))
 
     def process(self):
         idx = 0
 
-        with ProcessPoolExecutor(max_workers=self.num_workers) as executor:
-            for raw_path in tqdm(self.raw_data_paths):
-                run = torch.load(raw_path, weights_only=False)
-                nEvents = len(run)
-                process_event(0, run[0], self.model_feature_keys, self.node_feature_dict, self.processed_dir, self.skeleton_features)
-                futures = [executor.submit(process_event, idx+event, run[event], self.model_feature_keys, self.node_feature_dict,
-                                           self.processed_dir, self.skeleton_features) for event in range(nEvents)]
-                idx += nEvents
-                for future in as_completed(futures):
-                    max_features, max_edge_features = future.result()
-                    if (not self.test and max_features is not None):
-                        if self.node_scaler is not None:
-                            self.node_scaler = torch.maximum(self.node_scaler, max_features)
-                            self.edge_scaler = torch.maximum(self.edge_scaler, max_edge_features)
-                        else:
-                            self.node_scaler = max_features
-                            self.edge_scaler = max_edge_features
+        for raw_path in tqdm(self.raw_data_paths):
+            run = torch.load(raw_path, weights_only=False)
+            nEvents = len(run)
+
+            if self.num_workers <= 1:
+                results = [
+                    process_event(idx+event, run[event], self.model_feature_keys, self.node_feature_dict,
+                                  self.processed_dir, self.skeleton_features, self.device)
+                    for event in range(nEvents)
+                ]
+            else:
+                with ProcessPoolExecutor(max_workers=self.num_workers) as executor:
+                    futures = [executor.submit(process_event, idx+event, run[event], self.model_feature_keys, self.node_feature_dict,
+                                               self.processed_dir, self.skeleton_features, self.device) for event in range(nEvents)]
+                    results = [future.result() for future in as_completed(futures)]
+
+            idx += nEvents
+            for max_features, max_edge_features in results:
+                if (not self.test and max_features is not None):
+                    if self.node_scaler is not None:
+                        self.node_scaler = torch.maximum(self.node_scaler, max_features)
+                        self.edge_scaler = torch.maximum(self.edge_scaler, max_edge_features)
+                    else:
+                        self.node_scaler = max_features
+                        self.edge_scaler = max_edge_features
 
         if (not self.test):
             torch.save(self.node_scaler, osp.join(self.root_dir, "node_scaler.pt"))
             torch.save(self.edge_scaler, osp.join(self.root_dir, "edge_scaler.pt"))
 
-        idx = 0
         for idx, file in tqdm(enumerate(self.processed_data_paths), desc="Fixing holes"):
             sample = torch.load(file, weights_only=False)
             fixed_path = osp.join(self.processed_dir, f"data_{idx}.pt")
@@ -255,7 +264,7 @@ class GNNDataset(Dataset):
             if (file != fixed_path):
                 os.remove(file)
             torch.save(sample, fixed_path)
-        torch.save({"test": self.test, "events": idx + 1 if self.processed_data_paths else 0}, osp.join(self.processed_dir, "DONE"))
+        torch.save({"split": self.split, "test": self.test, "events": len(self.processed_data_paths)}, osp.join(self.processed_dir, "DONE"))
 
 
     def len(self):

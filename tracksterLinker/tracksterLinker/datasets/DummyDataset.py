@@ -5,9 +5,7 @@ from glob import glob
 
 import awkward as ak
 import numpy as np
-import numpy as cp
 
-import joblib
 from tqdm import tqdm
 
 import torch
@@ -17,18 +15,6 @@ from tracksterLinker.utils.graphUtils import build_ticl_graph
 from tracksterLinker.utils.dataUtils import *
 
 from concurrent.futures import ProcessPoolExecutor, as_completed
-
-
-def _file_sort_key(path):
-    name = osp.splitext(osp.basename(path))[0]
-    try:
-        return int(name.split("_")[-1])
-    except ValueError:
-        return name
-
-
-def _sorted_basenames(pattern):
-    return [osp.basename(path) for path in sorted(glob(pattern), key=_file_sort_key)]
 
 
 def _process_pool_kwargs(num_workers, device):
@@ -57,7 +43,8 @@ def download_event(id, file, raw_dir):
 
 
 def process_event(idx, event, model_feature_keys, node_feature_dict, processed_dir, skeleton_features, device):
-    import cupy as cp
+    device = processing_device(device)
+    xp = get_array_module(prefer_cupy=device.type == "cuda")
     nTracksters = len(event["barycenter_x"])
 
     # Skip if not multiple tracksters
@@ -65,7 +52,7 @@ def process_event(idx, event, model_feature_keys, node_feature_dict, processed_d
         return None, None
 
     # build feature list
-    features = cp.stack([awkward_to_cupy(event[field]) for field in model_feature_keys], axis=1)
+    features = xp.stack([awkward_to_array(event[field], xp=xp) for field in model_feature_keys], axis=1)
 
     # Create base graph from geometrical graph = [[], []]
     targets = ak.ravel(event.outer)
@@ -73,41 +60,41 @@ def process_event(idx, event, model_feature_keys, node_feature_dict, processed_d
     sources = ak.broadcast_arrays(sources, event.outer)[0]
     sources = ak.ravel(sources)
 
-    edges = cp.transpose(cp.stack([awkward_to_cupy(targets, dtype=cp.int64), awkward_to_cupy(sources, dtype=cp.int64)]))
+    edges = xp.transpose(xp.stack([awkward_to_array(targets, dtype=xp.int64, xp=xp), awkward_to_array(sources, dtype=xp.int64, xp=xp)]))
     if (edges.shape[0] < 2):
         return None, None
 
-    edge_features = cp.zeros((len(edges[:, 0]), 5), dtype='f')
+    edge_features = xp.zeros((len(edges[:, 0]), 5), dtype='f')
     edge_features[:, 0] = calc_edge_difference(edges, features, node_feature_dict, key="raw_energy")
     edge_features[:, 1] = calc_edge_difference(edges, features, node_feature_dict, key="barycenter_z")
     edge_features[:, 2] = calc_transverse_plane_separation(edges, features, node_feature_dict)
     edge_features[:, 3] = calc_spatial_compatibility(edges, features, node_feature_dict)
     edge_features[:, 4] = calc_edge_difference(edges, features, node_feature_dict, key="time")
 
-    e_y = awkward_to_cupy(event.y, dtype=cp.int64)
-    y = cp.zeros(edges.shape[0], dtype='i')
+    e_y = awkward_to_array(event.y, dtype=xp.int64, xp=xp)
+    y = xp.zeros(edges.shape[0], dtype='i')
     y[e_y[edges[:, 0]] == e_y[edges[:, 1]]] = 1
     y[e_y[edges[:, 0]] != e_y[edges[:, 1]]] = 0
     y[e_y[edges[:, 0]] == -1] = 0
     y[e_y[edges[:, 1]] == -1] = 0
 
-    isPU = awkward_to_cupy(event["isPU"], dtype=cp.int64)
+    isPU = awkward_to_array(event["isPU"], dtype=xp.int64, xp=xp)
     cross_pu_edges = cross_PU(isPU, edges)
     signal_edges = mask_PU(isPU, edges, PU=False)
     pu_edges = mask_PU(isPU, edges, PU=True)
     y[cross_pu_edges | pu_edges] = 0
-    PU_info = cp.stack([cross_pu_edges, signal_edges, pu_edges], axis=1)
+    PU_info = xp.stack([cross_pu_edges, signal_edges, pu_edges], axis=1)
 
     # Read data from `raw_path`.
     data = Data(
-        x=torch.as_tensor(features, device=device).float(),
+        x=array_to_tensor(features, device).float(),
         num_nodes=nTracksters, 
-        edge_index=torch.as_tensor(edges, device=device).long(),
-        edge_features=torch.as_tensor(edge_features, device=device).float(),
-        y=torch.as_tensor(y, device=device).float(),
-        cluster=torch.as_tensor(e_y, device=device).long(),
-        isPU=torch.as_tensor(isPU, device=device).int(),
-        PU_info=torch.as_tensor(PU_info, device=device).bool())
+        edge_index=array_to_tensor(edges, device).long(),
+        edge_features=array_to_tensor(edge_features, device).float(),
+        y=array_to_tensor(y, device).float(),
+        cluster=array_to_tensor(e_y, device).long(),
+        isPU=array_to_tensor(isPU, device).int(),
+        PU_info=array_to_tensor(PU_info, device).bool())
 
     torch.save(data, osp.join(processed_dir, f'data_{idx}.pt'))
     return torch.max(torch.abs(data.x), axis=0).values, torch.max(data.edge_features, axis=0).values
@@ -127,7 +114,7 @@ class DummyDataset(Dataset):
         self.split = split or ("test" if test else "train")
         self.test = test if split is None else self.split != "train"
         self.skeleton_features = skeleton_features
-        self.device = device
+        self.device = processing_device(device)
         self.num_workers = num_workers
 
         self.histo_path = histo_path
@@ -154,50 +141,62 @@ class DummyDataset(Dataset):
 
     @property
     def raw_data_paths(self):
-        return [osp.join(self.raw_dir, name) for name in _sorted_basenames(f"{self.raw_dir}/data_id_*.pt")]
+        return [osp.join(self.raw_dir, name) for name in sorted_basenames(f"{self.raw_dir}/data_id_*.pt")]
 
     @property
     def processed_data_paths(self):
-        return [osp.join(self.processed_dir, name) for name in _sorted_basenames(f"{self.processed_dir}/data_*.pt")]
+        return [osp.join(self.processed_dir, name) for name in sorted_basenames(f"{self.processed_dir}/data_*.pt")]
 
     def download(self):
         files = sorted(glob(f"{self.histo_path}/{self.split}/*.parquet"))
-        print(files)
 
         with tqdm(total=len(files)) as pbar:
-            with ProcessPoolExecutor(**_process_pool_kwargs(self.num_workers, self.device)) as executor:
-                futures = [executor.submit(download_event, id, files[id], self.raw_dir) for id in range(len(files))]
-
-                for future in as_completed(futures):
-                    future.result()
+            if self.num_workers <= 1:
+                for id, file in enumerate(files):
+                    download_event(id, file, self.raw_dir)
                     pbar.update()
+            else:
+                with ProcessPoolExecutor(**_process_pool_kwargs(self.num_workers, self.device)) as executor:
+                    futures = [executor.submit(download_event, id, files[id], self.raw_dir) for id in range(len(files))]
+
+                    for future in as_completed(futures):
+                        future.result()
+                        pbar.update()
         torch.save({"split": self.split, "files": len(files)}, osp.join(self.raw_dir, "DONE"))
 
     def process(self):
         idx = 0
 
-        with ProcessPoolExecutor(**_process_pool_kwargs(self.num_workers, self.device)) as executor:
-            for raw_path in tqdm(self.raw_data_paths):
-                run = torch.load(raw_path, weights_only=False)
-                nEvents = len(run)
-                futures = [executor.submit(process_event, idx+event, run[event], self.model_feature_keys, self.node_feature_dict,
-                                           self.processed_dir, self.skeleton_features, self.device) for event in range(nEvents)]
-                idx += nEvents
-                for future in as_completed(futures):
-                    max_features, max_edge_features = future.result()
-                    if (not self.test and max_features is not None):
-                        if self.node_scaler is not None:
-                            self.node_scaler = torch.maximum(self.node_scaler, max_features)
-                            self.edge_scaler = torch.maximum(self.edge_scaler, max_edge_features)
-                        else:
-                            self.node_scaler = max_features
-                            self.edge_scaler = max_edge_features
+        for raw_path in tqdm(self.raw_data_paths):
+            run = torch.load(raw_path, weights_only=False)
+            nEvents = len(run)
+
+            if self.num_workers <= 1:
+                results = [
+                    process_event(idx+event, run[event], self.model_feature_keys, self.node_feature_dict,
+                                  self.processed_dir, self.skeleton_features, self.device)
+                    for event in range(nEvents)
+                ]
+            else:
+                with ProcessPoolExecutor(**_process_pool_kwargs(self.num_workers, self.device)) as executor:
+                    futures = [executor.submit(process_event, idx+event, run[event], self.model_feature_keys, self.node_feature_dict,
+                                               self.processed_dir, self.skeleton_features, self.device) for event in range(nEvents)]
+                    results = [future.result() for future in as_completed(futures)]
+
+            idx += nEvents
+            for max_features, max_edge_features in results:
+                if (not self.test and max_features is not None):
+                    if self.node_scaler is not None:
+                        self.node_scaler = torch.maximum(self.node_scaler, max_features)
+                        self.edge_scaler = torch.maximum(self.edge_scaler, max_edge_features)
+                    else:
+                        self.node_scaler = max_features
+                        self.edge_scaler = max_edge_features
 
         if (not self.test):
             torch.save(self.node_scaler, osp.join(self.root_dir, "node_scaler.pt"))
             torch.save(self.edge_scaler, osp.join(self.root_dir, "edge_scaler.pt"))
 
-        idx = 0
         for idx, file in tqdm(enumerate(self.processed_data_paths), desc="Fixing holes"):
             sample = torch.load(file, weights_only=False)
             fixed_path = osp.join(self.processed_dir, f"data_{idx}.pt")
@@ -205,7 +204,7 @@ class DummyDataset(Dataset):
             if (file != fixed_path):
                 os.remove(file)
             torch.save(sample, fixed_path)
-        torch.save({"split": self.split, "events": idx + 1 if self.processed_data_paths else 0}, osp.join(self.processed_dir, "DONE"))
+        torch.save({"split": self.split, "events": len(self.processed_data_paths)}, osp.join(self.processed_dir, "DONE"))
 
 
     def len(self):

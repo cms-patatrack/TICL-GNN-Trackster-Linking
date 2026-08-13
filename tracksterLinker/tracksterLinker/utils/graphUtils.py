@@ -134,9 +134,9 @@ def build_ticl_graph(NTrackster, trackster, delta=0.2):
 
     for id_t in range(NTrackster):
         if trackster.barycenter_eta[id_t] > 0.0:
-            tracksterTilePos.fill(trackster.barycenter_eta[id_t], trackster.barycenter_phi[id_t], id_t)
+            tracksterTilePos.fill(abs(trackster.barycenter_eta[id_t]), trackster.barycenter_phi[id_t], id_t)
         elif trackster.barycenter_eta[id_t] < 0.0:
-            tracksterTileNeg.fill(trackster.barycenter_eta[id_t], trackster.barycenter_phi[id_t], id_t)
+            tracksterTileNeg.fill(abs(trackster.barycenter_eta[id_t]), trackster.barycenter_phi[id_t], id_t)
 
     allNodes = {}
     allNodes["inner"] = []
@@ -158,6 +158,8 @@ def build_ticl_graph(NTrackster, trackster, delta=0.2):
                     phi_mod = phi_i % TileConstants.nPhiBins
                     neighbours = tracksterTilePos[tracksterTilePos.globalBin(eta_i, phi_mod)]
                     for n in neighbours:
+                        if trackster.barycenter_eta[n] <= 0.0:
+                            continue
                         if trackster.barycenter_z[n] < trackster.barycenter_z[id_t]:
                             tNode.addInnerNeighbour(n)
                         elif trackster.barycenter_z[n] > trackster.barycenter_z[id_t]:
@@ -173,9 +175,11 @@ def build_ticl_graph(NTrackster, trackster, delta=0.2):
                     phi_mod = phi_i % TileConstants.nPhiBins
                     neighbours = tracksterTileNeg[tracksterTileNeg.globalBin(eta_i, phi_mod)]
                     for n in neighbours:
-                        if abs(trackster[n].barycenter_z) < abs(trackster.barycenter_z[id_t]):
+                        if trackster.barycenter_eta[n] >= 0.0:
+                            continue
+                        if abs(trackster.barycenter_z[n]) < abs(trackster.barycenter_z[id_t]):
                             tNode.addInnerNeighbour(n)
-                        elif abs(trackster[n].barycenter_z) > abs(trackster.barycenter_z[id_t]):
+                        elif abs(trackster.barycenter_z[n]) > abs(trackster.barycenter_z[id_t]):
                             tNode.addOuterNeighbour(n)
 
         allNodes["inner"].append(tNode.inner)

@@ -1,4 +1,6 @@
-import numpy as cp
+import os.path as osp
+from glob import glob
+
 import numpy as np
 import awkward as ak
 import torch
@@ -6,13 +8,65 @@ import torch
 from sklearn.neighbors import KDTree
 
 
-def awkward_to_cupy(values, dtype=None):
-    """Convert Awkward content to CuPy without Awkward's optional cuda.compute bridge."""
-    if isinstance(values, cp.ndarray):
+def processing_device(device):
+    device = torch.device(device)
+    if device.type == "cuda" and not torch.cuda.is_available():
+        return torch.device("cpu")
+    return device
+
+
+def array_to_tensor(array, device):
+    if _is_cupy_array(array):
+        return torch.utils.dlpack.from_dlpack(array.toDlpack()).to(device)
+    return torch.as_tensor(array, device=device)
+
+
+def file_sort_key(path):
+    name = osp.splitext(osp.basename(path))[0]
+    try:
+        return int(name.split("_")[-1])
+    except ValueError:
+        return name
+
+
+def sorted_basenames(pattern):
+    return [osp.basename(path) for path in sorted(glob(pattern), key=file_sort_key)]
+
+
+def get_array_module(prefer_cupy=False):
+    if prefer_cupy:
+        try:
+            import cupy as cp
+            return cp
+        except ImportError:
+            pass
+    return np
+
+
+def _is_cupy_array(values):
+    return type(values).__module__.split(".")[0] == "cupy"
+
+
+def _array_module_like(*values):
+    if any(_is_cupy_array(value) for value in values):
+        return get_array_module(prefer_cupy=True)
+    return np
+
+
+def awkward_to_array(values, dtype=None, xp=None):
+    """Convert Awkward content to the selected NumPy/CuPy array backend."""
+    xp = xp or _array_module_like(values)
+
+    if isinstance(values, xp.ndarray):
         return values.astype(dtype, copy=False) if dtype is not None else values
 
     array = ak.to_numpy(values)
-    return cp.asarray(array, dtype=dtype)
+    return xp.asarray(array, dtype=dtype)
+
+
+def awkward_to_cupy(values, dtype=None):
+    """Backward-compatible name; returns NumPy unless a CuPy array is provided."""
+    return awkward_to_array(values, dtype=dtype)
 
 
 def calc_LC_density(num_LCs):
@@ -24,14 +78,15 @@ def calc_trackster_density(NTracksters):
 
 
 def calc_group_score(edges, y, score, shared_energy, raw_energy):
-    score = awkward_to_cupy(score)
-    shared_energy = awkward_to_cupy(shared_energy)
-    raw_energy = awkward_to_cupy(raw_energy)
+    xp = _array_module_like(edges)
+    score = awkward_to_array(score, xp=xp)
+    shared_energy = awkward_to_array(shared_energy, xp=xp)
+    raw_energy = awkward_to_array(raw_energy, xp=xp)
 
     termSrc = (1-score[edges[:, 0]]) * shared_energy[edges[:, 0]] / raw_energy[edges[:, 0]]
     termDest = (1-score[edges[:, 1]]) * shared_energy[edges[:, 1]] / raw_energy[edges[:, 1]]
     weight = (termSrc + termDest)/2 
-    y = awkward_to_cupy(y)
+    y = awkward_to_array(y, xp=xp)
     weight[y[edges[:, 0]] != y[edges[:, 1]]] = 0
     weight[y[edges[:, 0]] == -1] = 0
     weight[y[edges[:, 1]] == -1] = 0
@@ -74,25 +129,29 @@ def calc_trackster_size(tracksters, clusters):
 
 
 def calc_spatial_compatibility(edges, features, feature_dict):
+    xp = _array_module_like(edges, features)
     principal_comp_vectors = [feature_dict["eVector0_x"], feature_dict["eVector0_y"], feature_dict["eVector0_z"]]
-    return cp.arccos(cp.clip(cp.sum(cp.multiply(features[cp.ix_(edges[:, 1], principal_comp_vectors)], features[cp.ix_(edges[:, 0], principal_comp_vectors)]), axis=1), a_min=-1, a_max=1))
+    return xp.arccos(xp.clip(xp.sum(xp.multiply(features[xp.ix_(edges[:, 1], principal_comp_vectors)], features[xp.ix_(edges[:, 0], principal_comp_vectors)]), axis=1), a_min=-1, a_max=1))
 
 
 def calc_transverse_plane_separation(edges, features, feature_dict):
+    xp = _array_module_like(edges, features)
     plane = [feature_dict["barycenter_x"], feature_dict["barycenter_y"]]
-    return cp.linalg.norm(features[cp.ix_(edges[:, 1], plane)] - features[cp.ix_(edges[:, 0], plane)], axis=1)
+    return xp.linalg.norm(features[xp.ix_(edges[:, 1], plane)] - features[xp.ix_(edges[:, 0], plane)], axis=1)
 
 
 def calc_edge_difference(edges, features, feature_dict, key=None):
     if (key is not None):
-        return cp.abs(features[edges[:, 1], feature_dict[key]] - features[edges[:, 0], feature_dict[key]])
+        xp = _array_module_like(edges, features)
+        return xp.abs(features[edges[:, 1], feature_dict[key]] - features[edges[:, 0], feature_dict[key]])
 
 
 def calc_min_max_skeleton_dist(nTracksters, edges, vertices):
-    edge_indices = cp.zeros((nTracksters, nTracksters, ), dtype='i')
+    xp = _array_module_like(edges)
+    edge_indices = xp.zeros((nTracksters, nTracksters, ), dtype='i')
 
-    min_dist = cp.zeros((len(edges[:, 0])), dtype='f')
-    max_dist = cp.zeros((len(edges[:, 0])), dtype='f')
+    min_dist = xp.zeros((len(edges[:, 0])), dtype='f')
+    max_dist = xp.zeros((len(edges[:, 0])), dtype='f')
 
     for i in range(len(edges[:, 0])):
         edge_indices[edges[i, 0], edges[i, 1]] = i
@@ -102,8 +161,8 @@ def calc_min_max_skeleton_dist(nTracksters, edges, vertices):
         num = len(vertices[root])
         for target in range(root, nTracksters):
             dist, _ = tree.query(vertices[target], k=num)
-            min_dist[edge_indices[root, target]] = cp.min(dist)
-            max_dist[edge_indices[root, target]] = cp.max(dist)
+            min_dist[edge_indices[root, target]] = xp.min(dist)
+            max_dist[edge_indices[root, target]] = xp.max(dist)
 
             min_dist[edge_indices[target, root]] = min_dist[edge_indices[root, target]]
             max_dist[edge_indices[target, root]] = max_dist[edge_indices[root, target]]
