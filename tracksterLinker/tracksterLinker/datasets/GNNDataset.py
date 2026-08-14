@@ -50,7 +50,7 @@ def download_event(id, file, raw_dir):
     alltracksters_array = alltracksters.arrays()
     allclusters_array = allclusters.arrays()
     allassociations_array = allassociations.arrays()
-    NTracksters = alltracksters.arrays().NTracksters
+    NTracksters = alltracksters_array.NTracksters
 
     try:
         allgraph = load_branch_with_highest_cycle(file, 'ticlDumper/TICLGraph')
