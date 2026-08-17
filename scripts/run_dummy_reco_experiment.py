@@ -19,6 +19,7 @@ from torch_geometric.loader.dataloader import DataLoader
 
 from tracksterLinker.datasets.DummyDataset import DummyDataset
 from tracksterLinker.datasets.GNNDataset import GNNDataset
+from tracksterLinker.datasets.ProcessedGraphDataset import ProcessedGraphDataset
 from tracksterLinker.GNN.LossFunctions import CombinedLoss, FocalLossLogits
 from tracksterLinker.GNN.TrackLinkingNet import GNN_TrackLinkingNet, weight_init
 from tracksterLinker.GNN.train import run_gnn_training, validate
@@ -71,9 +72,12 @@ def parse_args():
     parser.add_argument("--generate-data", action="store_true", help="Generate HGCAL-like dummy parquet data before training.")
     parser.add_argument(
         "--dataset-kind",
-        choices=["dummy", "gnn"],
+        choices=["dummy", "gnn", "processed"],
         default="dummy",
-        help="Use DummyDataset for parquet-like dummy data or GNNDataset for ROOT files from TICL-HGCAL-Dummy-Data.",
+        help=(
+            "Use DummyDataset for parquet-like dummy data, GNNDataset for ROOT files from "
+            "TICL-HGCAL-Dummy-Data, or ProcessedGraphDataset for prebuilt PyG graphs."
+        ),
     )
     parser.add_argument("--train-files", type=int, default=0)
     parser.add_argument("--val-files", type=int, default=0)
@@ -122,9 +126,13 @@ def dummy_data_paths(args):
     raw_data_dir = args.raw_data_dir or (raw_data_folder if use_script_paths and args.data_folder is None else osp.join(selected_data_folder, "histo"))
 
     if args.processed_data_dir is not None:
-        train_folder = osp.join(args.processed_data_dir, "dataset_dummy_reco")
-        val_folder = osp.join(args.processed_data_dir, "dataset_dummy_reco_val")
-        test_folder = osp.join(args.processed_data_dir, "dataset_dummy_reco_test")
+        train_folder = _processed_split_folder(args.processed_data_dir, "train")
+        val_folder = _processed_split_folder(args.processed_data_dir, "val")
+        test_folder = _processed_split_folder(args.processed_data_dir, "test")
+    elif args.dataset_kind == "processed":
+        train_folder = _processed_split_folder(selected_data_folder, "train")
+        val_folder = _processed_split_folder(selected_data_folder, "val")
+        test_folder = _processed_split_folder(selected_data_folder, "test")
     elif use_script_paths and args.data_folder is None:
         train_folder = data_folder_training
         val_folder = data_folder_val
@@ -143,6 +151,18 @@ def dummy_data_paths(args):
         "val": val_folder,
         "test": test_folder,
     }
+
+
+def _processed_split_folder(parent, split):
+    suffix = {"train": "", "val": "_val", "test": "_test"}[split]
+    candidates = [
+        osp.join(parent, f"dataset_colliderml_reco{suffix}"),
+        osp.join(parent, f"dataset_dummy_reco{suffix}"),
+    ]
+    for candidate in candidates:
+        if osp.isdir(candidate):
+            return candidate
+    return candidates[0]
 
 
 def build_model(architecture, dataset, device):
@@ -195,6 +215,9 @@ def main():
             "Run that generator first and pass its train/val/test parent via --raw-data-dir."
         )
 
+    if args.generate_data and args.dataset_kind == "processed":
+        raise ValueError("--dataset-kind processed expects existing processed/data_*.pt graphs.")
+
     if args.dataset_kind == "dummy" and (args.generate_data or not osp.isdir(paths["raw"])):
         config = HGCALLikeDummyConfig(
             train_files=args.train_files,
@@ -217,7 +240,7 @@ def main():
                 "Generate them with TICL-HGCAL-Dummy-Data first."
             )
 
-    dataset_cls = GNNDataset if args.dataset_kind == "gnn" else DummyDataset
+    dataset_cls = {"gnn": GNNDataset, "dummy": DummyDataset, "processed": ProcessedGraphDataset}[args.dataset_kind]
     train_dataset = dataset_cls(
         paths["train"],
         paths["raw"],
