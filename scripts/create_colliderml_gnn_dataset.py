@@ -17,12 +17,15 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "tracksterLinker"))
 os.environ.setdefault("MPLCONFIGDIR", osp.join(tempfile.gettempdir(), "matplotlib"))
 
+import awkward as ak
 import numpy as np
 import pandas as pd
 import torch
 from torch_geometric.data import Data
 
 from tracksterLinker.datasets.ProcessedGraphDataset import ProcessedGraphDataset
+from tracksterLinker.utils.dataUtils import calc_group_score, cross_PU, mask_PU
+from tracksterLinker.utils.graphUtils import build_ticl_graph
 
 
 NODE_FEATURE_KEYS = ProcessedGraphDataset.node_feature_keys
@@ -34,7 +37,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Convert ColliderML calorimeter cells into TICL-linking-style PyG graphs. "
-            "The output is an approximate pseudo-trackster benchmark, not native TICL data."
+            "ColliderML cells are first grouped into pseudo-tracksters, then linked with graphUtils.build_ticl_graph."
         )
     )
     parser.add_argument("--dataset", default="ttbar_pu200", help="ColliderML shorthand, e.g. ttbar_pu200 or ttbar_pu0.")
@@ -69,7 +72,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--eta-bin-width", type=float, default=0.035)
     parser.add_argument("--phi-bin-width", type=float, default=0.035)
     parser.add_argument("--depth-bin-width", type=float, default=35.0)
-    parser.add_argument("--edge-delta-r", type=float, default=0.18)
+    parser.add_argument(
+        "--edge-delta-r",
+        type=float,
+        default=0.2,
+        help="Eta/phi half-width passed directly to tracksterLinker.utils.graphUtils.build_ticl_graph.",
+    )
     parser.add_argument(
         "--detectors",
         default=None,
@@ -169,17 +177,18 @@ def main() -> None:
             "eta_bin_width": args.eta_bin_width,
             "phi_bin_width": args.phi_bin_width,
             "depth_bin_width": args.depth_bin_width,
-            "edge_delta_r": args.edge_delta_r,
+            "graph_utils_delta": args.edge_delta_r,
             "detectors": args.detectors,
             "min_truth_purity": args.min_truth_purity,
             "max_nodes": args.max_nodes,
             "target_nodes": args.target_nodes,
             "merge_max_distance": args.merge_max_distance,
         },
+        "graph_builder": "tracksterLinker.utils.graphUtils.build_ticl_graph",
         "paths": {split: str(path) for split, path in split_dirs.items()},
         "note": (
             "ColliderML calo cells are geometrically fragmented into pseudo-tracksters. "
-            "Truth contributions are used only to assign supervision labels."
+            "Edges are built by graphUtils.build_ticl_graph, and truth contributions are used only for supervision."
         ),
     }
     (output_root / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
@@ -387,21 +396,20 @@ def _event_to_graph(cells, contribs, particle_lookup: dict[tuple[int, int], dict
     trackster_density = len(nodes) / max(_eta_phi_area(nodes), 1e-6)
     for node in nodes:
         node["trackster_density"] = trackster_density
-    edges = _build_edges(nodes, args.edge_delta_r)
+    event = _nodes_to_awkward_event(nodes, args.edge_delta_r)
+    edges = _edges_from_event_outer(event)
     if len(edges) < 2:
         return None
     x = torch.as_tensor(np.stack([_node_feature_vector(node) for node in nodes]), dtype=torch.float32)
     edge_index = torch.as_tensor(edges, dtype=torch.long)
     edge_features = torch.as_tensor(_edge_features(nodes, edges), dtype=torch.float32)
-    clusters = np.asarray([node["cluster"] for node in nodes], dtype=np.int64)
-    is_pu = np.asarray([node["isPU"] for node in nodes], dtype=np.int64)
-    src = edges[:, 0]
-    dst = edges[:, 1]
-    y = (clusters[src] == clusters[dst]) & (clusters[src] >= 0)
-    cross_pu = is_pu[src] != is_pu[dst]
-    pu_edges = (is_pu[src] == 1) & (is_pu[dst] == 1)
-    signal_edges = (is_pu[src] == 0) & (is_pu[dst] == 0)
-    y[cross_pu | pu_edges] = False
+    clusters = ak.to_numpy(event.y).astype(np.int64)
+    is_pu = ak.to_numpy(event.isPU).astype(np.int64)
+    y = calc_group_score(edges, event.y, event.score, event.shared_e, event.raw_energy)
+    cross_pu = cross_PU(is_pu, edges)
+    signal_edges = mask_PU(is_pu, edges, PU=False)
+    pu_edges = mask_PU(is_pu, edges, PU=True)
+    y[cross_pu | pu_edges] = 0
     return Data(
         x=x,
         num_nodes=len(nodes),
@@ -409,10 +417,36 @@ def _event_to_graph(cells, contribs, particle_lookup: dict[tuple[int, int], dict
         edge_features=edge_features,
         y=torch.as_tensor(y, dtype=torch.float32),
         cluster=torch.as_tensor(clusters, dtype=torch.long),
-        roots=torch.arange(len(nodes), dtype=torch.long),
+        roots=ak.to_torch(event.roots).long(),
         isPU=torch.as_tensor(is_pu, dtype=torch.int32),
         PU_info=torch.as_tensor(np.stack([cross_pu, signal_edges, pu_edges], axis=1), dtype=torch.bool),
+        node_feature_keys=list(NODE_FEATURE_KEYS),
+        node_feature_dict=dict(NODE_FEATURE),
     )
+
+
+def _nodes_to_awkward_event(nodes: list[dict[str, Any]], delta: float) -> ak.Record:
+    event_data = {key: [_node_feature_value(node, key) for node in nodes] for key in NODE_FEATURE_KEYS}
+    event_data["y"] = [int(node["cluster"]) for node in nodes]
+    event_data["score"] = [0.0 if int(node["cluster"]) >= 0 else 1.0 for node in nodes]
+    event_data["shared_e"] = [float(node["raw_energy"]) if int(node["cluster"]) >= 0 else 0.0 for node in nodes]
+    event_data["isPU"] = [int(node["isPU"]) for node in nodes]
+    trackster_event = ak.Array([event_data])[0]
+    graph = build_ticl_graph(len(nodes), trackster_event, delta=delta)
+    event_data["inner"] = graph["inner"]
+    event_data["outer"] = graph["outer"]
+    roots = ak.num(graph["inner"], axis=-1)
+    event_data["roots"] = ak.local_index(roots)[roots == 0]
+    event_data["idx"] = ak.local_index(ak.Array(event_data["barycenter_x"]))
+    return ak.Array([event_data])[0]
+
+
+def _edges_from_event_outer(event: ak.Record) -> np.ndarray:
+    targets = ak.to_numpy(ak.ravel(event.outer))
+    sources = ak.to_numpy(ak.ravel(ak.broadcast_arrays(ak.local_index(event.outer, axis=0), event.outer)[0]))
+    if len(targets) == 0:
+        return np.empty((0, 2), dtype=np.int64)
+    return np.transpose(np.stack([targets, sources])).astype(np.int64, copy=False)
 
 
 def _fragment_key(row: dict[str, Any], args: argparse.Namespace) -> tuple[Any, ...]:
@@ -589,23 +623,6 @@ def _em_energy(group, weights: np.ndarray) -> float:
     return float(weights[mask].sum())
 
 
-def _build_edges(nodes: list[dict[str, Any]], delta_r: float) -> np.ndarray:
-    edges = []
-    for i, src in enumerate(nodes):
-        for j, dst in enumerate(nodes):
-            if i == j:
-                continue
-            if src["barycenter_z"] * dst["barycenter_z"] <= 0:
-                continue
-            if abs(src["barycenter_z"]) <= abs(dst["barycenter_z"]):
-                continue
-            deta = src["barycenter_eta"] - dst["barycenter_eta"]
-            dphi = _delta_phi(src["barycenter_phi"], dst["barycenter_phi"])
-            if math.hypot(deta, dphi) <= delta_r:
-                edges.append((i, j))
-    return np.asarray(edges, dtype=np.int64)
-
-
 def _edge_features(nodes: list[dict[str, Any]], edges: np.ndarray) -> np.ndarray:
     out = np.zeros((len(edges), 5), dtype=np.float32)
     for idx, (src, dst) in enumerate(edges):
@@ -621,21 +638,21 @@ def _edge_features(nodes: list[dict[str, Any]], edges: np.ndarray) -> np.ndarray
 
 
 def _node_feature_vector(node: dict[str, Any]) -> np.ndarray:
-    out = []
-    for key in NODE_FEATURE_KEYS:
-        if key.endswith("_prob"):
-            prob_index = [
-                "photon_prob",
-                "electron_prob",
-                "muon_prob",
-                "neutral_pion_prob",
-                "charged_hadron_prob",
-                "neutral_hadron_prob",
-            ].index(key)
-            out.append(float(UNIFORM_ID_PROB[prob_index]))
-        else:
-            out.append(float(node[key]))
-    return np.asarray(out, dtype=np.float32)
+    return np.asarray([_node_feature_value(node, key) for key in NODE_FEATURE_KEYS], dtype=np.float32)
+
+
+def _node_feature_value(node: dict[str, Any], key: str) -> float:
+    if key.endswith("_prob"):
+        prob_index = [
+            "photon_prob",
+            "electron_prob",
+            "muon_prob",
+            "neutral_pion_prob",
+            "charged_hadron_prob",
+            "neutral_hadron_prob",
+        ].index(key)
+        return float(UNIFORM_ID_PROB[prob_index])
+    return float(node[key])
 
 
 def _eta_phi_area(nodes: list[dict[str, Any]]) -> float:

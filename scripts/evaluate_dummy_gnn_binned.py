@@ -411,6 +411,7 @@ def _evaluate_model(model, data_paths: list[Path], threshold: float, device: tor
             if event_id and event_id % 25 == 0:
                 print(f"  processed {event_id}/{len(data_paths)} graphs", file=sys.stderr, flush=True)
             sample = torch.load(path, weights_only=False, map_location=device)
+            feature_dict = _node_feature_dict(sample)
             x = sample.x.to(device)
             edge_index = sample.edge_index.to(device)
             edge_features = sample.edge_features.to(device)
@@ -420,14 +421,14 @@ def _evaluate_model(model, data_paths: list[Path], threshold: float, device: tor
             if threshold_map is None:
                 y_pred = scores > threshold
             else:
-                y_pred = scores > _edge_thresholds(x, edge_index, threshold_map, device)
+                y_pred = scores > _edge_thresholds(x, edge_index, threshold_map, device, feature_dict)
 
-            edge_records = _edge_records(event_id, x, edge_index, y_true, y_pred, scores)
+            edge_records = _edge_records(event_id, x, edge_index, y_true, y_pred, scores, feature_dict)
             records.extend(edge_records)
 
             truth_components = _connected_components(edge_index[y_true], x.shape[0])
             pred_components = _connected_components(edge_index[y_pred], x.shape[0])
-            records.extend(_matched_component_records(event_id, x, truth_components, pred_components))
+            records.extend(_matched_component_records(event_id, x, truth_components, pred_components, feature_dict))
     return records
 
 
@@ -441,6 +442,7 @@ def _collect_edge_scores(model, data_paths: list[Path], device: torch.device):
             if event_id and event_id % 25 == 0:
                 print(f"  scanned {event_id}/{len(data_paths)} graphs", file=sys.stderr, flush=True)
             sample = torch.load(path, weights_only=False, map_location=device)
+            feature_dict = _node_feature_dict(sample)
             x = sample.x.to(device)
             edge_index = sample.edge_index.to(device)
             edge_features = sample.edge_features.to(device)
@@ -449,11 +451,11 @@ def _collect_edge_scores(model, data_paths: list[Path], device: torch.device):
             labels = (sample.y.detach().cpu().numpy() > 0)
             src = edge_index[:, 0]
             dst = edge_index[:, 1]
-            energy = x[:, NODE_FEATURE["raw_energy"]].abs()
+            energy = x[:, feature_dict["raw_energy"]].abs()
             weights_t = torch.maximum(energy[src], energy[dst]).clamp_min(0.0)
             rep = torch.where(energy[src] >= energy[dst], src, dst)
-            eta = x[rep, NODE_FEATURE["barycenter_eta"]].detach().cpu().numpy()
-            z = x[rep, NODE_FEATURE["barycenter_z"]].detach().cpu().numpy()
+            eta = x[rep, feature_dict["barycenter_eta"]].detach().cpu().numpy()
+            z = x[rep, feature_dict["barycenter_z"]].detach().cpu().numpy()
             weights = weights_t.detach().cpu().numpy()
             scores_out.append(scores)
             labels_out.append(labels)
@@ -461,7 +463,7 @@ def _collect_edge_scores(model, data_paths: list[Path], device: torch.device):
             coords_out["energy"].append(weights)
             coords_out["eta"].append(eta)
             coords_out["abs_eta"].append(np.abs(eta))
-            coords_out["phi"].append(x[rep, NODE_FEATURE["barycenter_phi"]].detach().cpu().numpy())
+            coords_out["phi"].append(x[rep, feature_dict["barycenter_phi"]].detach().cpu().numpy())
             coords_out["z"].append(z)
             coords_out["abs_z"].append(np.abs(z))
     return (
@@ -772,24 +774,30 @@ def _in_piecewise_bin(coord: np.ndarray, low: float, high: float, is_last: bool)
     return (coord >= low) & (coord < high)
 
 
-def _edge_thresholds(x: torch.Tensor, edge_index: torch.Tensor, threshold_map: dict[str, Any], device: torch.device) -> torch.Tensor:
+def _edge_thresholds(
+    x: torch.Tensor,
+    edge_index: torch.Tensor,
+    threshold_map: dict[str, Any],
+    device: torch.device,
+    feature_dict: dict[str, int],
+) -> torch.Tensor:
     axis = threshold_map["axis"]
     src = edge_index[:, 0]
     dst = edge_index[:, 1]
-    energy = x[:, NODE_FEATURE["raw_energy"]].abs()
+    energy = x[:, feature_dict["raw_energy"]].abs()
     rep = torch.where(energy[src] >= energy[dst], src, dst)
     if axis == "energy":
         coord = torch.maximum(energy[src], energy[dst]).clamp_min(0.0)
     elif axis == "eta":
-        coord = x[rep, NODE_FEATURE["barycenter_eta"]]
+        coord = x[rep, feature_dict["barycenter_eta"]]
     elif axis == "abs_eta":
-        coord = x[rep, NODE_FEATURE["barycenter_eta"]].abs()
+        coord = x[rep, feature_dict["barycenter_eta"]].abs()
     elif axis == "phi":
-        coord = x[rep, NODE_FEATURE["barycenter_phi"]]
+        coord = x[rep, feature_dict["barycenter_phi"]]
     elif axis == "z":
-        coord = x[rep, NODE_FEATURE["barycenter_z"]]
+        coord = x[rep, feature_dict["barycenter_z"]]
     elif axis == "abs_z":
-        coord = x[rep, NODE_FEATURE["barycenter_z"]].abs()
+        coord = x[rep, feature_dict["barycenter_z"]].abs()
     else:
         raise ValueError(axis)
 
@@ -812,10 +820,11 @@ def _edge_records(
     y_true: torch.Tensor,
     y_pred: torch.Tensor,
     scores: torch.Tensor,
+    feature_dict: dict[str, int],
 ) -> list[dict[str, Any]]:
     src = edge_index[:, 0]
     dst = edge_index[:, 1]
-    energy = x[:, NODE_FEATURE["raw_energy"]].abs()
+    energy = x[:, feature_dict["raw_energy"]].abs()
     src_e = energy[src]
     dst_e = energy[dst]
     use_src = src_e >= dst_e
@@ -828,11 +837,11 @@ def _edge_records(
             {
                 "event_id": event_id,
                 "object_type": "edge",
-                "eta": float(x[node, NODE_FEATURE["barycenter_eta"]].cpu()),
-                "abs_eta": abs(float(x[node, NODE_FEATURE["barycenter_eta"]].cpu())),
-                "phi": float(x[node, NODE_FEATURE["barycenter_phi"]].cpu()),
-                "z": float(x[node, NODE_FEATURE["barycenter_z"]].cpu()),
-                "abs_z": abs(float(x[node, NODE_FEATURE["barycenter_z"]].cpu())),
+                "eta": float(x[node, feature_dict["barycenter_eta"]].cpu()),
+                "abs_eta": abs(float(x[node, feature_dict["barycenter_eta"]].cpu())),
+                "phi": float(x[node, feature_dict["barycenter_phi"]].cpu()),
+                "z": float(x[node, feature_dict["barycenter_z"]].cpu()),
+                "abs_z": abs(float(x[node, feature_dict["barycenter_z"]].cpu())),
                 "energy": float(weights[index].cpu()),
                 "weight": float(weights[index].cpu()),
                 "truth": bool(y_true[index].cpu()),
@@ -848,8 +857,9 @@ def _matched_component_records(
     x: torch.Tensor,
     truth_components: list[list[int]],
     reco_components: list[list[int]],
+    feature_dict: dict[str, int],
 ) -> list[dict[str, Any]]:
-    energy = x[:, NODE_FEATURE["raw_energy"]].abs().detach().cpu().numpy()
+    energy = x[:, feature_dict["raw_energy"]].abs().detach().cpu().numpy()
     truth_index = _component_index(truth_components, len(energy))
     reco_index = _component_index(reco_components, len(energy))
     truth_totals = _component_totals(energy, truth_components)
@@ -900,7 +910,7 @@ def _matched_component_records(
             {
                 "event_id": event_id,
                 "object_type": "truth",
-                **_component_features(x, component),
+                **_component_features(x, component, feature_dict),
                 "efficiency": float(fraction >= EFFICIENCY_MATCH_FRACTION),
                 "association_efficiency": float(split_counts[truth_id] > 0),
                 "sim_completeness": fraction,
@@ -923,7 +933,7 @@ def _matched_component_records(
             {
                 "event_id": event_id,
                 "object_type": "reco",
-                **_component_features(x, component),
+                **_component_features(x, component, feature_dict),
                 "reco_purity": float(min(reco_purity[reco_id], 1.0)),
                 "fake_rate": float(merge_counts[reco_id] == 0),
                 "merge_rate": float(is_merged),
@@ -983,24 +993,32 @@ def _component_totals(energy: np.ndarray, components: list[list[int]]) -> np.nda
     return totals
 
 
-def _component_features(x: torch.Tensor, component: list[int]) -> dict[str, float]:
+def _component_features(x: torch.Tensor, component: list[int], feature_dict: dict[str, int]) -> dict[str, float]:
     idx = torch.as_tensor(component, dtype=torch.long, device=x.device)
-    energy = x[idx, NODE_FEATURE["raw_energy"]].abs().clamp_min(0.0)
+    energy = x[idx, feature_dict["raw_energy"]].abs().clamp_min(0.0)
     total = energy.sum()
     weights = energy / total if float(total.cpu()) > 0 else torch.full_like(energy, 1.0 / len(component))
-    phi = x[idx, NODE_FEATURE["barycenter_phi"]]
+    phi = x[idx, feature_dict["barycenter_phi"]]
     sin_phi = torch.sum(torch.sin(phi) * weights)
     cos_phi = torch.sum(torch.cos(phi) * weights)
     return {
-        "eta": float(torch.sum(x[idx, NODE_FEATURE["barycenter_eta"]] * weights).cpu()),
-        "abs_eta": abs(float(torch.sum(x[idx, NODE_FEATURE["barycenter_eta"]] * weights).cpu())),
+        "eta": float(torch.sum(x[idx, feature_dict["barycenter_eta"]] * weights).cpu()),
+        "abs_eta": abs(float(torch.sum(x[idx, feature_dict["barycenter_eta"]] * weights).cpu())),
         "phi": float(torch.atan2(sin_phi, cos_phi).cpu()),
-        "z": float(torch.sum(x[idx, NODE_FEATURE["barycenter_z"]] * weights).cpu()),
-        "abs_z": abs(float(torch.sum(x[idx, NODE_FEATURE["barycenter_z"]] * weights).cpu())),
+        "z": float(torch.sum(x[idx, feature_dict["barycenter_z"]] * weights).cpu()),
+        "abs_z": abs(float(torch.sum(x[idx, feature_dict["barycenter_z"]] * weights).cpu())),
         "energy": float(total.cpu()),
         "weight": float(total.cpu()),
         "n_nodes": len(component),
     }
+
+
+def _node_feature_dict(sample) -> dict[str, int]:
+    if hasattr(sample, "node_feature_dict"):
+        return dict(sample.node_feature_dict)
+    if hasattr(sample, "node_feature_keys"):
+        return {name: index for index, name in enumerate(sample.node_feature_keys)}
+    return NODE_FEATURE
 
 
 def _connected_components(edges: torch.Tensor, num_nodes: int) -> list[list[int]]:

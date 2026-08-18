@@ -104,8 +104,9 @@ def _summarize_split(path: Path) -> dict[str, Any]:
         else:
             signal_nodes.append(int(graph.num_nodes))
             pu_nodes.append(0)
-        num_hits.append(float(graph.x[:, 15].sum()))
-        raw_energy.append(float(graph.x[:, 16].sum()))
+        feature_dict = _node_feature_dict(graph)
+        num_hits.append(float(graph.x[:, feature_dict["num_hits"]].sum()))
+        raw_energy.append(float(graph.x[:, feature_dict["raw_energy"]].sum()))
 
     return {
         "path": str(path),
@@ -133,6 +134,17 @@ def _data_index(path: Path) -> int:
         return int(path.stem.rsplit("_", 1)[1])
     except Exception:
         return 0
+
+
+def _node_feature_dict(graph) -> dict[str, int]:
+    if hasattr(graph, "node_feature_dict"):
+        return dict(graph.node_feature_dict)
+    if hasattr(graph, "node_feature_keys"):
+        return {name: index for index, name in enumerate(graph.node_feature_keys)}
+    return {
+        "num_hits": 15,
+        "raw_energy": 16,
+    }
 
 
 def _mean(values: list[int]) -> float:
