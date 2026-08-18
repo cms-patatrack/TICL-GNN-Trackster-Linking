@@ -9,10 +9,26 @@ from sklearn.neighbors import KDTree
 
 
 def processing_device(device):
+    if device is None or str(device).lower() in {"auto", "best"}:
+        return best_available_device()
     device = torch.device(device)
     if device.type == "cuda" and not torch.cuda.is_available():
-        return torch.device("cpu")
+        return best_available_device()
+    if device.type == "mps" and not _mps_available():
+        return best_available_device()
     return device
+
+
+def best_available_device():
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if _mps_available():
+        return torch.device("mps")
+    return torch.device("cpu")
+
+
+def _mps_available():
+    return hasattr(torch.backends, "mps") and torch.backends.mps.is_available()
 
 
 def array_to_tensor(array, device):

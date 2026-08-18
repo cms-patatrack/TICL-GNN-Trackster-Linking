@@ -24,6 +24,7 @@ from tracksterLinker.GNN.LossFunctions import CombinedLoss, FocalLossLogits
 from tracksterLinker.GNN.TrackLinkingNet import GNN_TrackLinkingNet, weight_init
 from tracksterLinker.GNN.train import run_gnn_training, validate
 from tracksterLinker.multiGNN.PUNet import PUNet
+from tracksterLinker.utils.dataUtils import best_available_device, processing_device
 from tracksterLinker.utils.graphUtils import negative_edge_imbalance, print_graph_statistics
 from tracksterLinker.utils.hgcalDummy import HGCALLikeDummyConfig, write_dataset
 from tracksterLinker.utils.plotResults import plot_metric_bars, plot_training_comparison
@@ -99,7 +100,7 @@ def parse_args():
     parser.add_argument("--plot-every", type=int, default=5, help="Save validation plots every N epochs and at the final epoch.")
     parser.add_argument("--checkpoint-every", type=int, default=5, help="Save standard model checkpoints every N epochs and at the final epoch.")
     parser.add_argument("--early-stopping-patience", type=int, default=20)
-    parser.add_argument("--device", default=None, help="Example: cuda, cuda:0, or cpu. Defaults to cuda when available.")
+    parser.add_argument("--device", default=None, help="Example: auto, cuda, cuda:0, mps, or cpu. Defaults to the best available device.")
     return parser.parse_args()
 
 
@@ -169,14 +170,16 @@ def build_model(architecture, dataset, device):
     sample = dataset[0]
     input_dim = len(dataset.model_feature_keys)
     edge_dim = sample.edge_features.shape[1]
+    node_scaler = dataset.node_scaler.to(device) if dataset.node_scaler is not None else None
+    edge_scaler = dataset.edge_scaler.to(device) if dataset.edge_scaler is not None else None
     kwargs = {
         "input_dim": input_dim,
         "edge_feature_dim": edge_dim,
         "niters": 4,
         "weighted_aggr": True,
         "dropout": 0.3,
-        "node_scaler": dataset.node_scaler,
-        "edge_scaler": dataset.edge_scaler,
+        "node_scaler": node_scaler,
+        "edge_scaler": edge_scaler,
     }
     if architecture == "punet":
         model = PUNet(edge_hidden_dim=64, hidden_dim=128, num_heads=8, **kwargs)
@@ -205,7 +208,8 @@ def main():
         raise ValueError("This repository stores edge_index as [E, 2], so the dummy experiment requires --batch-size 1.")
 
     set_seed(args.seed)
-    device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
+    device = processing_device(args.device) if args.device is not None else best_available_device()
+    print(f"Using device: {device}")
     paths = dummy_data_paths(args)
     os.makedirs(paths["model"], exist_ok=True)
 

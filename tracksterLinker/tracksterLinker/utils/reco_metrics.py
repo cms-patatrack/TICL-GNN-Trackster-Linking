@@ -399,9 +399,11 @@ def evaluate_model_reconstruction(model, loader, node_feature_dict, threshold=No
     model.eval()
     if threshold is None:
         threshold = model.threshold
+    device = next(model.parameters()).device
 
     def model_components(sample):
         with torch.no_grad():
+            sample = sample.to(device)
             _, logits = model.run(sample.x, sample.edge_features, sample.edge_index)
             scores = model.scale(logits).squeeze(-1)
             return connected_components_from_edges(sample.edge_index, sample.x.shape[0], scores > threshold)

@@ -37,7 +37,7 @@ def save_model(model, epoch, optimizer, loss, val_loss, output_folder, filename,
         
         with torch.no_grad():
             dummy_input_copy = copy.deepcopy(dummy_input)
-            dummy_input_copy.to("cpu")
+            dummy_input_copy = dummy_input_copy.to("cpu")
             test_input = (dummy_input_copy.x, dummy_input_copy.edge_features, dummy_input_copy.edge_index)
             traced_model = torch.jit.script(dump_model)
             

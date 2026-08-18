@@ -23,7 +23,19 @@ from tracksterLinker.utils.plotResults import (
 )
 from tracksterLinker.utils.perturbations.inErrorBars import *
 
-def train(model, opt, loader, epoch, weighted="raw_energy", scores=False, emb_out=False, loss_obj=FocalLoss(), node_feature_dict=GNNDataset.node_feature_dict):
+
+def _model_device(model):
+    try:
+        return next(model.parameters()).device
+    except StopIteration:
+        return next(model.buffers()).device
+
+
+def _sample_to_model_device(sample, model):
+    return sample.to(_model_device(model))
+
+
+def train(model, opt, loader, epoch, weighted="raw_energy", scores=False, emb_out=False, loss_obj=FocalLoss(), node_feature_dict=GNNDataset.node_feature_dict, device=None):
 
     epoch_loss = 0
 
@@ -31,6 +43,7 @@ def train(model, opt, loader, epoch, weighted="raw_energy", scores=False, emb_ou
     step = 1
     last_loss = 0
     for sample in tqdm(loader, desc=f"Training Epoch {epoch}"):
+        sample = sample.to(device or _model_device(model))
 
         # reset optimizer and enable training mode
         opt.zero_grad(set_to_none=True)
@@ -93,6 +106,7 @@ def test(model, loader, epoch, weighted="raw_energy", scores=False, loss_obj=Foc
 
     with torch.set_grad_enabled(False):
         model.eval()
+        device = torch.device(device or _model_device(model))
         val_loss = 0.0
 
         # 0: tp, 1: fp, 2: fn, 3: tn
@@ -101,6 +115,7 @@ def test(model, loader, epoch, weighted="raw_energy", scores=False, loss_obj=Foc
         pu_edges = torch.zeros(4, device=device)
             
         for sample in tqdm(loader, desc=f"Validation Epoch {epoch}"):
+            sample = sample.to(device)
             nn_emb, nn_pred = model.run(sample.x, sample.edge_features, sample.edge_index)
             weights = calc_weights(sample.edge_index, sample.x, node_feature_dict, name=weighted)
 
@@ -137,16 +152,18 @@ def test(model, loader, epoch, weighted="raw_energy", scores=False, loss_obj=Foc
         return val_loss, cross_edges, signal_edges, pu_edges 
 
 
-def validate(model, loader, epoch, weighted="raw_energy", scores=False, loss_obj=FocalLoss(), node_feature_dict=GNNDataset.node_feature_dict):
+def validate(model, loader, epoch, weighted="raw_energy", scores=False, loss_obj=FocalLoss(), node_feature_dict=GNNDataset.node_feature_dict, device=None):
 
     with torch.set_grad_enabled(False):
         model.eval()
+        device = torch.device(device or _model_device(model))
         val_loss = 0.0
 
         pred, y, weights = [], [], []
         PU_info = [[], [], []]
             
         for sample in tqdm(loader, desc=f"Validation Epoch {epoch}"):
+            sample = sample.to(device)
             nn_emb, nn_pred = model.run(sample.x, sample.edge_features, sample.edge_index)
             pred += model.scale(nn_pred).squeeze(-1).tolist()
             y += sample.y.tolist()
@@ -240,6 +257,7 @@ def run_gnn_training(
             loss_obj=loss_obj,
             node_feature_dict=node_feature_dict,
             weighted=weighted,
+            device=device,
         )
         train_loss_hist.append(train_loss)
 
@@ -283,6 +301,7 @@ def run_gnn_training(
                 loss_obj=validation_loss_obj,
                 weighted=weighted,
                 node_feature_dict=node_feature_dict,
+                device=device,
             )
             threshold = get_best_threshold(pred, y, weight)
             model.threshold = threshold

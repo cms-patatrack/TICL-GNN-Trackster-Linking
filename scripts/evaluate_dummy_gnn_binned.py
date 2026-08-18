@@ -89,7 +89,7 @@ def main() -> None:
         help="Directory for CSV/JSON/PNG outputs.",
     )
     parser.add_argument("--limit", type=int, default=None, help="Optional number of graphs for a quick check.")
-    parser.add_argument("--device", default="cpu", help="Torch device.")
+    parser.add_argument("--device", default="auto", help="Torch device: auto, cuda, cuda:0, mps, or cpu.")
     parser.add_argument(
         "--focal-checkpoint",
         default=None,
@@ -181,7 +181,7 @@ def main() -> None:
     if not data_paths:
         raise SystemExit(f"No processed graphs found under {dataset_dir / 'processed'}")
 
-    device = torch.device(args.device)
+    device = _best_device(args.device)
     model_classes = _load_model_classes(repo_root)
 
     all_payloads: dict[str, dict[str, Any]] = {}
@@ -337,6 +337,21 @@ def _load_model_classes(repo_root: Path):
     from tracksterLinker.multiGNN.PUNet import PUNet
 
     return {"gnn": GNN_TrackLinkingNet, "punet": PUNet}
+
+
+def _best_device(name: str | None) -> torch.device:
+    if name is None or str(name).lower() in {"auto", "best"}:
+        if torch.cuda.is_available():
+            return torch.device("cuda")
+        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            return torch.device("mps")
+        return torch.device("cpu")
+    device = torch.device(name)
+    if device.type == "cuda" and not torch.cuda.is_available():
+        return _best_device("auto")
+    if device.type == "mps" and not (hasattr(torch.backends, "mps") and torch.backends.mps.is_available()):
+        return _best_device("auto")
+    return device
 
 
 def _instantiate_model_from_state(model_classes: dict[str, Any], state_dict: dict[str, torch.Tensor]):
