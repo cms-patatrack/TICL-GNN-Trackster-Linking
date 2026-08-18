@@ -2,28 +2,28 @@
 import torch 
 import torch.distributions as dist
 
-from tracksterLinker.datasets.GNNDataset import GNNDataset
+from tracksterLinker.datasets.ProcessedGraphDataset import ProcessedGraphDataset
 
-def perturbate(node_features, num_samples=100, with_z=True, device=torch.device('cuda' if torch.cuda.is_available() else "cpu")):
-    pca_values = torch.clamp(node_features[:, GNNDataset.node_feature_dict["sigmaPCA1"]:GNNDataset.node_feature_dict["sigmaPCA3"]+1], min=1)
-    eigenv = node_features[:, GNNDataset.node_feature_dict["eVector0_x"]:GNNDataset.node_feature_dict["eVector0_z"]+1]
+def perturbate(node_features, num_samples=100, no_z=True, device=torch.device('cuda' if torch.cuda.is_available() else "cpu")):
+    node_feature_dict = ProcessedGraphDataset.node_feature_dict
+    pca_values = torch.clamp(node_features[:, node_feature_dict["sigmaPCA1"]:node_feature_dict["sigmaPCA3"]+1], min=1)
+    eigenv = node_features[:, node_feature_dict["eVector0_x"]:node_feature_dict["eVector0_z"]+1]
 
     normal_dist = dist.Normal(torch.zeros(pca_values.shape, device=device), pca_values)
     
     data = torch.clone(torch.broadcast_to(node_features, (num_samples, node_features.shape[0], node_features.shape[1])))  
     multiple_samples = normal_dist.sample((num_samples,))
-    multiple_samples = multiple_samples + torch.sign(multiple_samples) * 10
     perts = multiple_samples * eigenv
 
-    if with_z:
-        data[:, :, GNNDataset.node_feature_dict["barycenter_x"]:GNNDataset.node_feature_dict["barycenter_y"]+1] += perts[:, :, :2]
+    if no_z:
+        data[:, :, node_feature_dict["barycenter_x"]:node_feature_dict["barycenter_y"]+1] += perts[:, :, :2]
     else:
-        data[:, :, GNNDataset.node_feature_dict["barycenter_x"]:GNNDataset.node_feature_dict["barycenter_z"]+1] += perts
+        data[:, :, node_feature_dict["barycenter_x"]:node_feature_dict["barycenter_z"]+1] += perts
 
-    pose = data[:, :, GNNDataset.node_feature_dict["barycenter_x"]:GNNDataset.node_feature_dict["barycenter_z"]+1]
-    data[:, :, GNNDataset.node_feature_dict["barycenter_phi"]] = torch.arctan2(pose[:, :, 1], pose[:, :, 0]) 
+    pose = data[:, :, node_feature_dict["barycenter_x"]:node_feature_dict["barycenter_z"]+1]
+    data[:, :, node_feature_dict["barycenter_phi"]] = torch.arctan2(pose[:, :, 1], pose[:, :, 0]) 
     theta = torch.arctan2(torch.sqrt(pose[:, :, 0]**2 + pose[:, :, 1]**2), pose[:, :, 2]) 
-    data[:, :, GNNDataset.node_feature_dict["barycenter_eta"]] = -torch.log(torch.tan(theta/2))
+    data[:, :, node_feature_dict["barycenter_eta"]] = -torch.log(torch.tan(theta/2))
 
     return data
 
