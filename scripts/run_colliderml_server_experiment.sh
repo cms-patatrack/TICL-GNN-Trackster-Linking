@@ -12,7 +12,7 @@ MODEL_DIR="${MODEL_DIR:-data/training_data/${RUN_NAME}}"
 VALIDATION_DIR="${VALIDATION_DIR:-${MODEL_DIR}/binned_validation}"
 RERUN_DATASET="${RERUN_DATASET:-0}"
 
-TRAIN_EVENTS="${TRAIN_EVENTS:-160}"
+TRAIN_EVENTS="${TRAIN_EVENTS:-60}"
 VAL_EVENTS="${VAL_EVENTS:-20}"
 TEST_EVENTS="${TEST_EVENTS:-20}"
 EVENT_START="${EVENT_START:-0}"
@@ -30,8 +30,8 @@ BATCH_SIZE="${BATCH_SIZE:-1}"
 LR="${LR:-1e-3}"
 DEVICE="${DEVICE:-auto}"
 NUM_WORKERS="${NUM_WORKERS:-8}"
-PLOT_EVERY="${PLOT_EVERY:-5}"
-CHECKPOINT_EVERY="${CHECKPOINT_EVERY:-5}"
+PLOT_EVERY="${PLOT_EVERY:-30}"
+CHECKPOINT_EVERY="${CHECKPOINT_EVERY:-30}"
 EARLY_STOPPING_PATIENCE="${EARLY_STOPPING_PATIENCE:-20}"
 SEED="${SEED:-12345}"
 
@@ -72,8 +72,8 @@ if [[ "${RERUN_DATASET}" == "1" ]]; then
     --phi-bin-width "$PHI_BIN_WIDTH" \
     --depth-bin-width "$DEPTH_BIN_WIDTH" \
     --edge-delta-r "$EDGE_DELTA_R" \
-    --min-truth-purity "$MIN_TRUTH_PURITY"
-    --target-nodes 1500
+    --min-truth-purity "$MIN_TRUTH_PURITY" \
+    --target-nodes 5000
 
   echo
   echo "== Graph summary =="
