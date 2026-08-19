@@ -6,10 +6,11 @@ cd "$REPO_ROOT"
 
 PYTHON="${PYTHON:-python}"
 DATASET="${DATASET:-ttbar_pu0}"
-RUN_NAME="${RUN_NAME:-colliderml_${DATASET}_det11_14_graphutils_$(date +%Y%m%d_%H%M%S)}"
+RUN_NAME="${RUN_NAME:-colliderml_${DATASET}_det11_14_graphutils}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-data/${RUN_NAME}}"
 MODEL_DIR="${MODEL_DIR:-data/training_data/${RUN_NAME}}"
 VALIDATION_DIR="${VALIDATION_DIR:-${MODEL_DIR}/binned_validation}"
+RERUN_DATASET="${RERUN_DATASET:-0}"
 
 TRAIN_EVENTS="${TRAIN_EVENTS:-160}"
 VAL_EVENTS="${VAL_EVENTS:-20}"
@@ -55,26 +56,29 @@ if missing:
     raise SystemExit("Missing Python dependencies:\n  " + "\n  ".join(missing))
 PY
 
-echo "== Build processed graphs =="
-"$PYTHON" scripts/create_colliderml_gnn_dataset.py \
-  --dataset "$DATASET" \
-  --auto-download \
-  --train-events "$TRAIN_EVENTS" \
-  --val-events "$VAL_EVENTS" \
-  --test-events "$TEST_EVENTS" \
-  --event-start "$EVENT_START" \
-  --output-root "$OUTPUT_ROOT" \
-  --overwrite \
-  --detectors "$DETECTORS" \
-  --eta-bin-width "$ETA_BIN_WIDTH" \
-  --phi-bin-width "$PHI_BIN_WIDTH" \
-  --depth-bin-width "$DEPTH_BIN_WIDTH" \
-  --edge-delta-r "$EDGE_DELTA_R" \
-  --min-truth-purity "$MIN_TRUTH_PURITY"
+if [[ "${RERUN_DATASET}" == "1" ]]; then
+  echo "== Build processed graphs =="
+  "$PYTHON" scripts/create_colliderml_gnn_dataset.py \
+    --dataset "$DATASET" \
+    --auto-download \
+    --train-events "$TRAIN_EVENTS" \
+    --val-events "$VAL_EVENTS" \
+    --test-events "$TEST_EVENTS" \
+    --event-start "$EVENT_START" \
+    --output-root "$OUTPUT_ROOT" \
+    --overwrite \
+    --detectors "$DETECTORS" \
+    --eta-bin-width "$ETA_BIN_WIDTH" \
+    --phi-bin-width "$PHI_BIN_WIDTH" \
+    --depth-bin-width "$DEPTH_BIN_WIDTH" \
+    --edge-delta-r "$EDGE_DELTA_R" \
+    --min-truth-purity "$MIN_TRUTH_PURITY"
+    --target-nodes 1500
 
-echo
-echo "== Graph summary =="
-"$PYTHON" scripts/summarize_processed_graphs.py "$OUTPUT_ROOT"
+  echo
+  echo "== Graph summary =="
+  "$PYTHON" scripts/summarize_processed_graphs.py "$OUTPUT_ROOT"
+fi
 
 echo
 echo "== Train/evaluate reconstruction models =="

@@ -12,6 +12,7 @@ import tempfile
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
+from tqdm import tqdm
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "tracksterLinker"))
@@ -144,7 +145,7 @@ def main() -> None:
         split_node_scalers = []
         split_edge_scalers = []
         out_idx = 0
-        for event_id in split_event_ids:
+        for event_id in tqdm(split_event_ids):
             graph = _event_to_graph(
                 cells_df[cells_df["event_id"] == event_id],
                 contribs_df[contribs_df["event_id"] == event_id],

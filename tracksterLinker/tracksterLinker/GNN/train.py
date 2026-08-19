@@ -79,6 +79,11 @@ def train(model, opt, loader, epoch, weighted="raw_energy", scores=False, emb_ou
         else:
             loss = loss_obj(z.squeeze(-1), torch.ceil(sample.y), weights)
 
+        print(
+            f"alloc={torch.cuda.memory_allocated() / 1024**3:.1f} GB",
+            f"reserved={torch.cuda.memory_reserved() / 1024**3:.1f} GB",
+            f"peak={torch.cuda.max_memory_allocated() / 1024**3:.1f} GB",
+        )
         # back-propagate and update the weight
         if not torch.isfinite(loss): raise RuntimeError("Non-finite loss")
         loss.backward()

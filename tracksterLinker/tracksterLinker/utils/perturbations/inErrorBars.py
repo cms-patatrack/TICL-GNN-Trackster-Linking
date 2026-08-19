@@ -6,7 +6,7 @@ from tracksterLinker.datasets.ProcessedGraphDataset import ProcessedGraphDataset
 
 def perturbate(node_features, num_samples=100, no_z=True, device=torch.device('cuda' if torch.cuda.is_available() else "cpu")):
     node_feature_dict = ProcessedGraphDataset.node_feature_dict
-    pca_values = torch.clamp(node_features[:, node_feature_dict["sigmaPCA1"]:node_feature_dict["sigmaPCA3"]+1], min=1)
+    pca_values = 4 + torch.clamp(node_features[:, node_feature_dict["sigmaPCA1"]:node_feature_dict["sigmaPCA3"]+1], min=1)
     eigenv = node_features[:, node_feature_dict["eVector0_x"]:node_feature_dict["eVector0_z"]+1]
 
     normal_dist = dist.Normal(torch.zeros(pca_values.shape, device=device), pca_values)
