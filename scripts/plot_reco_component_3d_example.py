@@ -211,7 +211,7 @@ def _evaluate_sample(
         scores = models[run.label].scale(logits).squeeze(-1)
         y_pred = scores > run.threshold
         pred_components = _connected_components(edge_index[y_pred], x.shape[0])
-        records = _matched_component_records(0, x, truth_components, pred_components)
+        records = _matched_component_records(0, x, truth_components, pred_components, NODE_FEATURE)
         out[run.label] = {
             "scores": scores.detach().cpu().numpy(),
             "y_pred": y_pred.detach().cpu().numpy(),
@@ -233,7 +233,7 @@ def _summarize_records(
         "n_reco_components": float(len(pred_components)),
         "fragmentation": _weighted_mean(truth, "fragmentation"),
         "split_rate": _weighted_mean(truth, "split_rate"),
-        "duplicate_rate": _weighted_mean(truth, "duplicate_rate"),
+        "duplicate_rate": _weighted_mean(reco, "duplicate_rate"),
         "merge_rate": _weighted_mean(reco, "merge_rate"),
         "fake_rate": _weighted_mean(reco, "fake_rate"),
         "mean_reco_size": float(np.mean([len(component) for component in pred_components])) if pred_components else 0.0,

@@ -63,8 +63,8 @@ AXIS_LABELS = {
 }
 PIECEWISE_AXES = tuple(AXIS_LABELS)
 EFFICIENCY_MATCH_FRACTION = 0.40
-FAKE_RATE_PURITY_THRESHOLD = 0.20
 ASSOCIATION_SCORE_THRESHOLD = 0.20
+IOU_DIAGNOSTIC_THRESHOLD = 0.20
 
 
 @dataclass(frozen=True)
@@ -283,15 +283,23 @@ def main() -> None:
             "graphs": len(data_paths),
             "axis_definition": "Edges are assigned to the higher-raw-energy endpoint. Components use raw-energy-weighted barycenters.",
             "component_metric_definition": {
-                "efficiency": f"truth component has best reco overlap >= {EFFICIENCY_MATCH_FRACTION:.2f} of truth energy",
-                "fake_rate": f"reco component has best truth purity < {FAKE_RATE_PURITY_THRESHOLD:.2f} of reco energy",
-                "association_efficiency": (
+                "efficiency": (
                     "truth component has at least one associated reco component using the TICL association score "
-                    f"threshold {ASSOCIATION_SCORE_THRESHOLD:.2f}"
+                    f"threshold {ASSOCIATION_SCORE_THRESHOLD:.2f}, matching efficiency_rate in TICL-Pipeline"
                 ),
-                "split_rate": "truth component has more than one associated reco component",
-                "duplicate_rate": "truth component has more than one associated reco component, matching reconstruction_metrics duplicate_rate",
-                "merge_rate": "reco component has more than one associated truth component",
+                "containment_efficiency_40": (
+                    f"truth component has best reco containment >= {EFFICIENCY_MATCH_FRACTION:.2f}, "
+                    "matching containment_efficiency_40 in TICL-Pipeline"
+                ),
+                "association_iou_efficiency": (
+                    f"truth component has best reco IoU >= {IOU_DIAGNOSTIC_THRESHOLD:.2f}, "
+                    "matching association_iou_efficiency in TICL-Pipeline"
+                ),
+                "fake_rate": "reco component has no associated truth component, matching fake_rate in TICL-Pipeline",
+                "split_rate": "truth component has more than one associated reco component, matching split_rate in TICL-Pipeline",
+                "duplicate_rate": "reco component has more than one associated truth component, matching duplicate_rate in TICL-Pipeline",
+                "merge_rate": "reco component has more than one associated truth component, matching merge_rate in TICL-Pipeline",
+                "sim_completeness": "truth-side max associated containment, matching associated_sim_completeness_* in TICL-Pipeline",
                 "fragmentation": "truth-side 1 - sum(associated containment^2), matching associated_fragmentation_* in TICL-Pipeline",
             },
             "models": {
@@ -871,14 +879,8 @@ def _matched_component_records(
 
     if overlap.size:
         truth_best_overlap = overlap.max(axis=1)
-        truth_best_reco = overlap.argmax(axis=1)
-        reco_best_overlap = overlap.max(axis=0)
-        reco_best_truth = overlap.argmax(axis=0)
     else:
         truth_best_overlap = np.zeros(len(truth_components), dtype=float)
-        truth_best_reco = np.full(len(truth_components), -1, dtype=int)
-        reco_best_overlap = np.zeros(len(reco_components), dtype=float)
-        reco_best_truth = np.full(len(reco_components), -1, dtype=int)
 
     containment = np.divide(
         overlap,
@@ -886,19 +888,37 @@ def _matched_component_records(
         out=np.zeros_like(overlap),
         where=truth_totals[:, None] > 0,
     )
-    associated_containment = np.where(association_match, containment, np.zeros_like(containment))
-    truth_coverage = associated_containment.sum(axis=1) if associated_containment.size else np.zeros(len(truth_components), dtype=float)
-    fragmentation = 1.0 - np.minimum(np.square(associated_containment).sum(axis=1), 1.0)
-    split_counts = association_match.sum(axis=1) if association_match.size else np.zeros(len(truth_components), dtype=int)
-    merge_counts = association_match.sum(axis=0) if association_match.size else np.zeros(len(reco_components), dtype=int)
-
     purity = np.divide(
         overlap,
         reco_totals[None, :],
         out=np.zeros_like(overlap),
         where=reco_totals[None, :] > 0,
     )
-    reco_purity = purity.max(axis=0) if purity.size else np.zeros(len(reco_components), dtype=float)
+    iou = np.divide(
+        overlap,
+        truth_totals[:, None] + reco_totals[None, :] - overlap,
+        out=np.zeros_like(overlap),
+        where=(truth_totals[:, None] + reco_totals[None, :] - overlap) > 0,
+    )
+    best_iou = iou.max(axis=1) if iou.size else np.zeros(len(truth_components), dtype=float)
+    associated_containment = np.where(association_match, containment, np.zeros_like(containment))
+    associated_purity = np.where(association_match, purity, np.zeros_like(purity))
+    associated_best_containment = (
+        associated_containment.max(axis=1) if associated_containment.size else np.zeros(len(truth_components), dtype=float)
+    )
+    associated_best_reco = (
+        associated_containment.argmax(axis=1) if associated_containment.size else np.full(len(truth_components), -1, dtype=int)
+    )
+    associated_best_reco = np.where(associated_best_containment > 0.0, associated_best_reco, -1)
+    truth_coverage = associated_containment.sum(axis=1) if associated_containment.size else np.zeros(len(truth_components), dtype=float)
+    fragmentation = 1.0 - np.minimum(np.square(associated_containment).sum(axis=1), 1.0)
+    split_counts = association_match.sum(axis=1) if association_match.size else np.zeros(len(truth_components), dtype=int)
+    merge_counts = association_match.sum(axis=0) if association_match.size else np.zeros(len(reco_components), dtype=int)
+    reco_purity = associated_purity.max(axis=0) if associated_purity.size else np.zeros(len(reco_components), dtype=float)
+    associated_best_truth = (
+        associated_purity.argmax(axis=0) if associated_purity.size else np.full(len(reco_components), -1, dtype=int)
+    )
+    associated_best_truth = np.where(reco_purity > 0.0, associated_best_truth, -1)
 
     out: list[dict[str, Any]] = []
     for truth_id, component in enumerate(truth_components):
@@ -906,20 +926,22 @@ def _matched_component_records(
         if total_energy <= 0:
             continue
         fraction = min(float(truth_best_overlap[truth_id] / total_energy), 1.0)
+        associated_fraction = min(float(associated_best_containment[truth_id]), 1.0)
         out.append(
             {
                 "event_id": event_id,
                 "object_type": "truth",
                 **_component_features(x, component, feature_dict),
-                "efficiency": float(fraction >= EFFICIENCY_MATCH_FRACTION),
+                "efficiency": float(split_counts[truth_id] > 0),
+                "containment_efficiency_40": float(fraction >= EFFICIENCY_MATCH_FRACTION),
+                "association_iou_efficiency": float(best_iou[truth_id] >= IOU_DIAGNOSTIC_THRESHOLD),
                 "association_efficiency": float(split_counts[truth_id] > 0),
-                "sim_completeness": fraction,
+                "sim_completeness": associated_fraction,
                 "missing_energy_fraction": float(1.0 - min(truth_coverage[truth_id], 1.0)),
                 "split_rate": float(split_counts[truth_id] > 1),
-                "duplicate_rate": float(split_counts[truth_id] > 1),
                 "fragmentation": float(fragmentation[truth_id]),
                 "associated_reco_count": int(split_counts[truth_id]),
-                "matched_reco_id": int(truth_best_reco[truth_id]),
+                "matched_reco_id": int(associated_best_reco[truth_id]),
             }
         )
 
@@ -927,7 +949,7 @@ def _matched_component_records(
         total_energy = float(reco_totals[reco_id])
         if total_energy <= 0:
             continue
-        truth_id = int(reco_best_truth[reco_id])
+        truth_id = int(associated_best_truth[reco_id])
         is_merged = int(merge_counts[reco_id]) > 1
         out.append(
             {
@@ -937,6 +959,7 @@ def _matched_component_records(
                 "reco_purity": float(min(reco_purity[reco_id], 1.0)),
                 "fake_rate": float(merge_counts[reco_id] == 0),
                 "merge_rate": float(is_merged),
+                "duplicate_rate": float(is_merged),
                 "associated_truth_count": int(merge_counts[reco_id]),
                 "matched_truth_id": truth_id,
             }
@@ -1055,11 +1078,13 @@ def _make_payload(records: list[dict[str, Any]], label: str) -> dict[str, Any]:
         "recall": ("edge", "edge"),
         "f1": ("edge", "edge"),
         "efficiency": ("truth", "truth"),
+        "containment_efficiency_40": ("truth", "truth"),
+        "association_iou_efficiency": ("truth", "truth"),
         "sim_completeness": ("truth", "truth"),
         "missing_energy_fraction": ("truth", "truth"),
         "split_rate": ("truth", "truth"),
         "fragmentation": ("truth", "truth"),
-        "duplicate_rate": ("truth", "truth"),
+        "duplicate_rate": ("reco", "reco"),
         "reco_purity": ("reco", "reco"),
         "fake_rate": ("reco", "reco"),
         "merge_rate": ("reco", "reco"),
@@ -1293,6 +1318,8 @@ def _plot_payloads(output_dir: Path, payloads: dict[str, dict[str, Any]]) -> lis
         "recall": "Edge recall",
         "f1": "Edge F1",
         "efficiency": "Reco efficiency",
+        "containment_efficiency_40": "Containment efficiency 40%",
+        "association_iou_efficiency": "Association IoU efficiency",
         "sim_completeness": "Sim completeness",
         "missing_energy_fraction": "Missing energy fraction",
         "split_rate": "Split rate",
@@ -1343,15 +1370,15 @@ def _plot_payloads(output_dir: Path, payloads: dict[str, dict[str, Any]]) -> lis
 
     selected = [
         ("efficiency", "eta"),
+        ("containment_efficiency_40", "eta"),
         ("missing_energy_fraction", "abs_eta"),
         ("efficiency", "energy"),
+        ("association_iou_efficiency", "energy"),
         ("missing_energy_fraction", "energy"),
         ("fragmentation", "abs_eta"),
         ("split_rate", "abs_eta"),
         ("merge_rate", "abs_eta"),
-        ("duplicate_rate", "abs_eta"),
         ("merge_rate", "energy"),
-        ("duplicate_rate", "energy"),
     ]
     fig, axes = plt.subplots(2, 5, figsize=(24.0, 7.6), dpi=180)
     for ax, (metric, axis) in zip(axes.ravel(), selected):
@@ -1404,6 +1431,8 @@ def _plot_metric_means(
             "Reco metrics",
             [
                 "efficiency",
+                "containment_efficiency_40",
+                "association_iou_efficiency",
                 "sim_completeness",
                 "missing_energy_fraction",
                 "split_rate",
@@ -1525,6 +1554,18 @@ def _plot_contact_sheet(output_dir: Path, plot_paths: list[Path]) -> Path:
             "gnn_dummy_efficiency_vs_z.png",
             "gnn_dummy_efficiency_vs_abs_z.png",
             "gnn_dummy_efficiency_vs_energy.png",
+            "gnn_dummy_containment_efficiency_40_vs_eta.png",
+            "gnn_dummy_containment_efficiency_40_vs_abs_eta.png",
+            "gnn_dummy_containment_efficiency_40_vs_phi.png",
+            "gnn_dummy_containment_efficiency_40_vs_z.png",
+            "gnn_dummy_containment_efficiency_40_vs_abs_z.png",
+            "gnn_dummy_containment_efficiency_40_vs_energy.png",
+            "gnn_dummy_association_iou_efficiency_vs_eta.png",
+            "gnn_dummy_association_iou_efficiency_vs_abs_eta.png",
+            "gnn_dummy_association_iou_efficiency_vs_phi.png",
+            "gnn_dummy_association_iou_efficiency_vs_z.png",
+            "gnn_dummy_association_iou_efficiency_vs_abs_z.png",
+            "gnn_dummy_association_iou_efficiency_vs_energy.png",
             "gnn_dummy_missing_energy_fraction_vs_eta.png",
             "gnn_dummy_missing_energy_fraction_vs_abs_eta.png",
             "gnn_dummy_missing_energy_fraction_vs_phi.png",

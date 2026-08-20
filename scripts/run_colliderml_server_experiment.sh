@@ -10,6 +10,8 @@ RUN_NAME="${RUN_NAME:-colliderml_${DATASET}_det11_14_graphutils}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-data/${RUN_NAME}}"
 MODEL_DIR="${MODEL_DIR:-data/training_data/${RUN_NAME}}"
 VALIDATION_DIR="${VALIDATION_DIR:-${MODEL_DIR}/binned_validation}"
+ASSOCIATION_DIR="${ASSOCIATION_DIR:-${MODEL_DIR}/association_comparisons}"
+ASSOCIATION_EVENTS="${ASSOCIATION_EVENTS:-10}"
 RERUN_DATASET="${RERUN_DATASET:-0}"
 
 TRAIN_EVENTS="${TRAIN_EVENTS:-60}"
@@ -125,7 +127,20 @@ PY
   --device "$DEVICE"
 
 echo
+echo "== Association comparison plots =="
+"$PYTHON" scripts/plot_validation_association_comparisons.py \
+  --dataset "$OUTPUT_ROOT/dataset_colliderml_reco_test" \
+  --output-dir "$ASSOCIATION_DIR" \
+  --events "$ASSOCIATION_EVENTS" \
+  --focal-checkpoint "$FOCAL_CHECKPOINT" \
+  --focal-threshold "$FOCAL_THRESHOLD" \
+  --contrastive-checkpoint "$CONTRASTIVE_CHECKPOINT" \
+  --contrastive-threshold "$CONTRASTIVE_THRESHOLD" \
+  --device "$DEVICE"
+
+echo
 echo "Done."
 echo "processed graphs: $OUTPUT_ROOT"
 echo "model outputs:    $MODEL_DIR"
 echo "validation plots: $VALIDATION_DIR"
+echo "association plots:$ASSOCIATION_DIR"

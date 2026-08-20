@@ -16,10 +16,10 @@ from torch_geometric.data import Data
 from evaluate_dummy_gnn_binned import (
     NODE_FEATURE,
     NODE_FEATURE_KEYS,
-    _component_records,
     _connected_components,
     _edge_records,
     _make_payload,
+    _matched_component_records,
     _plot_contact_sheet,
     _plot_payloads,
     _summary_rows,
@@ -247,11 +247,10 @@ def _evaluate(model: torch.jit.ScriptModule, samples: list[Data], threshold: flo
             fp += float(weights[(~y_true) & y_pred].sum().cpu())
             fn += float(weights[y_true & (~y_pred)].sum().cpu())
             tn += float(weights[(~y_true) & (~y_pred)].sum().cpu())
-            records.extend(_edge_records(event_id, sample.x, sample.edge_index, y_true, y_pred, scores))
+            records.extend(_edge_records(event_id, sample.x, sample.edge_index, y_true, y_pred, scores, NODE_FEATURE))
             truth_components = _connected_components(sample.edge_index[y_true], sample.x.shape[0])
             pred_components = _connected_components(sample.edge_index[y_pred], sample.x.shape[0])
-            records.extend(_component_records(event_id, sample.x, truth_components, pred_components, object_type="truth"))
-            records.extend(_component_records(event_id, sample.x, pred_components, truth_components, object_type="reco"))
+            records.extend(_matched_component_records(event_id, sample.x, truth_components, pred_components, NODE_FEATURE))
             if (event_id + 1) % 25 == 0:
                 print(f"evaluated {event_id + 1}/{len(samples)} events", flush=True)
     precision = _safe_div(tp, tp + fp)
