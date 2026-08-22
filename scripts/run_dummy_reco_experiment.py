@@ -285,7 +285,7 @@ def main():
     val_dl = DataLoader(val_data, shuffle=False, batch_size=args.batch_size)
     test_dl = DataLoader(test_data, shuffle=False, batch_size=args.batch_size)
 
-    alpha = 0.5 + float(negative_edge_imbalance(train_data)) / 2
+    alpha = 0.5 + (1-float(negative_edge_imbalance(train_data))) / 2
     print(f"Using focal alpha={alpha:.4f}, gamma=2")
 
     histories = {}
@@ -295,12 +295,6 @@ def main():
     all_metrics["unlinked_baseline"] = baseline_metrics
 
     model_specs = {
-        "focal": {
-            "loss": FocalLossLogits(alpha=alpha, gamma=2),
-            "scores": False,
-            "lr": args.lr,
-            "optimizer": "adam",
-        },
         "focal_contrastive": {
             "loss": CombinedLoss(
                 alpha=alpha,

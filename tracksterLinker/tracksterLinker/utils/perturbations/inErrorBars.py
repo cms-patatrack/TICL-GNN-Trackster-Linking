@@ -4,18 +4,18 @@ import torch.distributions as dist
 
 from tracksterLinker.datasets.ProcessedGraphDataset import ProcessedGraphDataset
 
-def perturbate(node_features, num_samples=100, no_z=True, device=torch.device('cuda' if torch.cuda.is_available() else "cpu")):
+def perturbate(node_features, num_samples=100, with_z=True, device=torch.device('cuda' if torch.cuda.is_available() else "cpu")):
     node_feature_dict = ProcessedGraphDataset.node_feature_dict
-    pca_values = 4 + torch.clamp(node_features[:, node_feature_dict["sigmaPCA1"]:node_feature_dict["sigmaPCA3"]+1], min=1)
+    #pca_values = 4 + torch.clamp(node_features[:, node_feature_dict["sigmaPCA1"]:node_feature_dict["sigmaPCA3"]+1], min=1)
     eigenv = node_features[:, node_feature_dict["eVector0_x"]:node_feature_dict["eVector0_z"]+1]
 
-    normal_dist = dist.Normal(torch.zeros(pca_values.shape, device=device), pca_values)
+    normal_dist = dist.Normal(torch.zeros(eigenv.shape, device=device), [2, 2, 10])
     
     data = torch.clone(torch.broadcast_to(node_features, (num_samples, node_features.shape[0], node_features.shape[1])))  
     multiple_samples = normal_dist.sample((num_samples,))
     perts = multiple_samples * eigenv
 
-    if no_z:
+    if with_z:
         data[:, :, node_feature_dict["barycenter_x"]:node_feature_dict["barycenter_y"]+1] += perts[:, :, :2]
     else:
         data[:, :, node_feature_dict["barycenter_x"]:node_feature_dict["barycenter_z"]+1] += perts

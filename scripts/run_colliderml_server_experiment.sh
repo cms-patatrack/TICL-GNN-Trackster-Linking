@@ -75,7 +75,7 @@ if [[ "${RERUN_DATASET}" == "1" ]]; then
     --depth-bin-width "$DEPTH_BIN_WIDTH" \
     --edge-delta-r "$EDGE_DELTA_R" \
     --min-truth-purity "$MIN_TRUTH_PURITY" \
-    --target-nodes 5000
+    --target-nodes 2000
 
   echo
   echo "== Graph summary =="
